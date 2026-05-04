@@ -1,0 +1,21 @@
+(game moving-rect
+  :title "Moving Rect"
+  :size [360 640]
+  :initial initial
+  :update update
+  :view view)
+
+(def initial
+  {:x 0})
+
+(defn update [dt state]
+  (update state :x + (* 100 dt)))
+
+(defn view [state]
+  (group
+    (clear "#101018")
+    (rect :x (:x state)
+          :y 100
+          :w 32
+          :h 32
+          :color "#fff")))

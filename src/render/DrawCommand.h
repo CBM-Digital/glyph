@@ -1,5 +1,6 @@
 #pragma once
 
+#include "assets/AssetManager.h"
 #include "core/Types.h"
 
 #include <string>
@@ -39,6 +40,7 @@ struct DrawCommand {
   StringId image = 0;
   StringId frame = 0;
   StringId font = 0;
+  assets::AssetHandle asset {};
 
   std::string color;
   std::string text;

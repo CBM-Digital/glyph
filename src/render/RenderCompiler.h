@@ -1,5 +1,6 @@
 #pragma once
 
+#include "assets/AssetManager.h"
 #include "core/StringInterner.h"
 #include "render/DrawCommand.h"
 #include "script/Value.h"
@@ -11,7 +12,7 @@ namespace glyph::render {
 
 class RenderCompiler {
 public:
-  explicit RenderCompiler(StringInterner& interner);
+  explicit RenderCompiler(StringInterner& interner, const assets::AssetManager* assets = nullptr);
 
   std::vector<DrawCommand> compile(const script::Value& root) const;
 
@@ -38,6 +39,7 @@ private:
   [[noreturn]] void fail(std::string_view message) const;
 
   StringInterner& interner_;
+  const assets::AssetManager* assets_ = nullptr;
 };
 
 } // namespace glyph::render

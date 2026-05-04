@@ -32,7 +32,7 @@ std::string movingRectGame() {
     (def initial {:x 0})
 
     (defn update [dt state]
-      (update-in state [:x] + (* 100 dt)))
+      (update state :x + (* 100 dt)))
 
     (defn view [state]
       (rect :x (:x state) :y 100 :w 32 :h 32 :color "#fff"))
@@ -114,6 +114,73 @@ void testInputBridge() {
                 "pressed is frame-local");
 }
 
+void testAssetsRenderingAndAudioQueue() {
+  glyph::game::GameHost host;
+  host.loadSource(R"(
+    (game asset-audio-test
+      :title "Asset Audio Test"
+      :size [160 120]
+      :assets {:hero "assets/hero.png"
+               :main "assets/main.ttf"
+               :hit "assets/hit.wav"
+               :theme "assets/theme.ogg"}
+      :initial initial
+      :update update
+      :view view)
+
+    (def initial {:played false})
+
+    (defn update [dt state]
+      (if (:played state)
+        state
+        (do
+          (sound/play :hit :volume 0.5 :pitch 1.25)
+          (music/play :theme :volume 0.25)
+          (music/set-volume 0.75)
+          (assoc state :played true))))
+
+    (defn view [state]
+      (group
+        (sprite :image :hero :x 10 :y 20)
+        (text :font :main :value "Ready" :x 2 :y 3)))
+  )");
+
+  require(host.assets().assets().size() == 4, "asset manifest loaded");
+  const auto hero = host.vm().interner().intern(":hero");
+  const auto mainFont = host.vm().interner().intern(":main");
+  const auto hit = host.vm().interner().intern(":hit");
+  const auto theme = host.vm().interner().intern(":theme");
+
+  require(host.assets().texture(hero).id != 0, "texture asset resolved");
+  require(host.assets().font(mainFont).id != 0, "font asset resolved");
+  require(host.assets().sound(hit).id != 0, "sound asset resolved");
+  require(host.assets().music(theme).id != 0, "music asset resolved");
+
+  host.tick(1.0 / 60.0);
+  require(host.audio().commands().size() == 3, "audio commands queued");
+  require(host.audio().commands()[0].type == glyph::audio::AudioCommandType::PlaySound,
+          "sound/play queues sound");
+  require(host.audio().commands()[0].asset == hit, "sound asset id");
+  require(host.audio().commands()[0].handle.id == host.assets().sound(hit).id, "sound handle");
+  require(std::fabs(host.audio().commands()[0].volume - 0.5f) < 0.000001f, "sound volume");
+  require(std::fabs(host.audio().commands()[0].pitch - 1.25f) < 0.000001f, "sound pitch");
+  require(host.audio().commands()[1].type == glyph::audio::AudioCommandType::PlayMusic,
+          "music/play queues music");
+  require(host.audio().commands()[1].handle.id == host.assets().music(theme).id, "music handle");
+  require(host.audio().commands()[2].type == glyph::audio::AudioCommandType::SetMusicVolume,
+          "music/set-volume queues volume");
+
+  const auto commands = host.renderView();
+  require(commands.size() == 2, "sprite and text commands");
+  require(commands[0].type == glyph::render::DrawCommandType::Sprite, "sprite command");
+  require(commands[0].asset.id == host.assets().texture(hero).id, "sprite texture handle");
+  require(commands[1].type == glyph::render::DrawCommandType::Text, "text command");
+  require(commands[1].asset.id == host.assets().font(mainFont).id, "text font handle");
+
+  host.audio().flush();
+  require(host.audio().commands().empty(), "audio flush clears queue");
+}
+
 } // namespace
 
 int main() {
@@ -121,6 +188,7 @@ int main() {
     testMilestoneAcceptanceGameLoop();
     testAccumulatorPauseAndReset();
     testInputBridge();
+    testAssetsRenderingAndAudioQueue();
   } catch (const glyph::script::ScriptError& error) {
     std::cerr << "ScriptError: " << error.what() << '\n';
     return 1;

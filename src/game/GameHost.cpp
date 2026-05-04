@@ -17,11 +17,16 @@ double vectorNumber(const script::Value& vector, std::size_t index, std::string_
 
 } // namespace
 
-GameHost::GameHost() { vm_.setInputSystem(&input_); }
+GameHost::GameHost() {
+  vm_.setInputSystem(&input_);
+  vm_.setAudioSystem(&audio_);
+  audio_.setAssetManager(&assets_);
+}
 
 void GameHost::loadSource(std::string_view source, std::string file) {
   vm_ = script::VM();
   vm_.setInputSystem(&input_);
+  vm_.setAudioSystem(&audio_);
   vm_.evalSource(source, std::move(file));
 
   const auto metadata = vm_.globals()->lookup(vm_.interner().intern("__game__"));
@@ -31,6 +36,9 @@ void GameHost::loadSource(std::string_view source, std::string file) {
 
   instance_ = GameInstance{};
   instance_.definition = extractDefinition(*metadata);
+  assets_.loadManifest(instance_.definition.assetManifest, vm_.interner());
+  audio_.setAssetManager(&assets_);
+  audio_.flush();
   instance_.state = instance_.definition.initialState;
   instance_.active = true;
 }
@@ -42,7 +50,14 @@ void GameHost::reset() {
   instance_.paused = false;
 }
 
-void GameHost::setPaused(bool paused) { instance_.paused = paused; }
+void GameHost::setPaused(bool paused) {
+  instance_.paused = paused;
+  if (paused) {
+    audio_.pauseAll();
+  } else {
+    audio_.resumeAll();
+  }
+}
 
 void GameHost::tick(double deltaSeconds) {
   if (!instance_.active || instance_.paused) {
@@ -62,7 +77,7 @@ std::vector<render::DrawCommand> GameHost::renderView() {
     return {};
   }
   const script::Value tree = vm_.call(instance_.definition.viewFn, {instance_.state});
-  render::RenderCompiler compiler(vm_.interner());
+  render::RenderCompiler compiler(vm_.interner(), &assets_);
   return compiler.compile(tree);
 }
 
@@ -75,6 +90,10 @@ void GameHost::setState(script::Value state) { instance_.state = std::move(state
 script::VM& GameHost::vm() { return vm_; }
 
 input::InputSystem& GameHost::input() { return input_; }
+
+assets::AssetManager& GameHost::assets() { return assets_; }
+
+audio::AudioSystem& GameHost::audio() { return audio_; }
 
 script::Value GameHost::metadataField(const script::Value& metadata, std::string_view key) {
   auto found = metadata.map->find(vm_.interner().intern(key));

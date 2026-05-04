@@ -14,7 +14,8 @@ const std::vector<script::Value>& emptyChildren() {
 
 } // namespace
 
-RenderCompiler::RenderCompiler(StringInterner& interner) : interner_(interner) {}
+RenderCompiler::RenderCompiler(StringInterner& interner, const assets::AssetManager* assets)
+    : interner_(interner), assets_(assets) {}
 
 std::vector<DrawCommand> RenderCompiler::compile(const script::Value& root) const {
   std::vector<DrawCommand> commands;
@@ -136,6 +137,12 @@ DrawCommand RenderCompiler::compileSprite(const script::Value& node) const {
   DrawCommand command;
   command.type = DrawCommandType::Sprite;
   command.image = keywordField(node, ":image");
+  if (assets_) {
+    command.asset = assets_->texture(command.image);
+    if (command.asset.id == 0) {
+      fail("sprite references an unknown texture asset");
+    }
+  }
   command.frame = keywordField(node, ":frame", 0);
   command.x = numberField(node, ":x");
   command.y = numberField(node, ":y");
@@ -150,6 +157,12 @@ DrawCommand RenderCompiler::compileText(const script::Value& node) const {
   command.type = DrawCommandType::Text;
   command.text = stringField(node, ":value");
   command.font = keywordField(node, ":font", 0);
+  if (assets_ && command.font != 0) {
+    command.asset = assets_->font(command.font);
+    if (command.asset.id == 0) {
+      fail("text references an unknown font asset");
+    }
+  }
   command.x = numberField(node, ":x");
   command.y = numberField(node, ":y");
   command.scale = numberField(node, ":size", 16.0);

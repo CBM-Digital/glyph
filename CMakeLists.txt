@@ -14,6 +14,8 @@ add_library(glyph_script
   src/script/Env.cpp
   src/script/Native.cpp
   src/script/VM.cpp
+  src/assets/AssetManager.cpp
+  src/audio/AudioSystem.cpp
   src/input/InputSystem.cpp
   src/render/RenderCompiler.cpp
   src/render/Renderer.cpp

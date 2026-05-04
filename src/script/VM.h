@@ -6,10 +6,15 @@
 
 #include <memory>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace glyph::input {
 class InputSystem;
+}
+
+namespace glyph::audio {
+class AudioSystem;
 }
 
 namespace glyph::script {
@@ -31,6 +36,8 @@ public:
   std::shared_ptr<Env> globals() const;
   void setInputSystem(const glyph::input::InputSystem* input);
   const glyph::input::InputSystem* input() const;
+  void setAudioSystem(glyph::audio::AudioSystem* audio);
+  glyph::audio::AudioSystem* audio() const;
 
 private:
   Value evalList(const AstPtr& node, const std::shared_ptr<Env>& env);
@@ -53,7 +60,9 @@ private:
 
   StringInterner interner_;
   std::shared_ptr<Env> globals_;
+  std::unordered_map<StringId, Value> nativeFallbacks_;
   const glyph::input::InputSystem* input_ = nullptr;
+  glyph::audio::AudioSystem* audio_ = nullptr;
 };
 
 } // namespace glyph::script

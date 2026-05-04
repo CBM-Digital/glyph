@@ -72,10 +72,19 @@ Value VM::eval(const AstPtr& node, const std::shared_ptr<Env>& env) {
 }
 
 void VM::defineGlobal(std::string_view name, Value value) {
-  globals_->define(interner_.intern(name), std::move(value));
+  const StringId id = interner_.intern(name);
+  if (value.kind == ValueKind::NativeFunction) {
+    nativeFallbacks_[id] = value;
+  }
+  globals_->define(id, std::move(value));
 }
 
-void VM::defineGlobal(StringId name, Value value) { globals_->define(name, std::move(value)); }
+void VM::defineGlobal(StringId name, Value value) {
+  if (value.kind == ValueKind::NativeFunction) {
+    nativeFallbacks_[name] = value;
+  }
+  globals_->define(name, std::move(value));
+}
 
 StringInterner& VM::interner() { return interner_; }
 
@@ -86,6 +95,10 @@ std::shared_ptr<Env> VM::globals() const { return globals_; }
 void VM::setInputSystem(const glyph::input::InputSystem* input) { input_ = input; }
 
 const glyph::input::InputSystem* VM::input() const { return input_; }
+
+void VM::setAudioSystem(glyph::audio::AudioSystem* audio) { audio_ = audio; }
+
+glyph::audio::AudioSystem* VM::audio() const { return audio_; }
 
 Value VM::evalList(const AstPtr& node, const std::shared_ptr<Env>& env) {
   if (node->children.empty()) {
@@ -139,6 +152,15 @@ Value VM::evalList(const AstPtr& node, const std::shared_ptr<Env>& env) {
   for (std::size_t i = 1; i < node->children.size(); ++i) {
     args.push_back(eval(node->children[i], env));
   }
+
+  if (head->kind == AstKind::Symbol && callee.kind == ValueKind::Function &&
+      callee.function->params.size() != args.size()) {
+    auto fallback = nativeFallbacks_.find(head->id);
+    if (fallback != nativeFallbacks_.end()) {
+      return call(fallback->second, args);
+    }
+  }
+
   return call(std::move(callee), args);
 }
 

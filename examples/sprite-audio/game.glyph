@@ -1,0 +1,34 @@
+(game sprite-audio
+  :title "Sprite Audio"
+  :size [360 640]
+  :assets
+  {:hero "assets/hero.png"
+   :main "assets/main.ttf"
+   :hit "assets/hit.wav"
+   :theme "assets/theme.ogg"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial
+  {:played false
+   :x 180})
+
+(defn update [dt state]
+  (if (:played state)
+    state
+    (do
+      (sound/play :hit :volume 0.8 :pitch 1.1)
+      (music/play :theme :volume 0.3)
+      (assoc state :played true))))
+
+(defn view [state]
+  (group
+    (clear "#050510")
+    (sprite :image :hero :x (:x state) :y 280)
+    (text :font :main
+          :value "Sprite and audio commands"
+          :x 24
+          :y 40
+          :size 18
+          :color "#fff")))

@@ -1,5 +1,6 @@
 #include "script/Native.h"
 
+#include "audio/AudioSystem.h"
 #include "script/Error.h"
 #include "input/InputSystem.h"
 #include "script/VM.h"
@@ -644,6 +645,75 @@ Value nativePointerReleased(VM& vm, const std::vector<Value>&) {
   return Value::booleanValue(input && input->pointerReleased());
 }
 
+float optionNumber(VM& vm, const std::vector<Value>& args, std::string_view key, float fallback) {
+  const StringId keyId = vm.interner().intern(key);
+  for (std::size_t i = 1; i + 1 < args.size(); i += 2) {
+    if (args[i].kind != ValueKind::Keyword) {
+      throw RuntimeError("audio options must be keyword/value pairs");
+    }
+    if (args[i].id == keyId) {
+      return static_cast<float>(numberArg(args[i + 1]));
+    }
+  }
+  return fallback;
+}
+
+Value nativeSoundPlay(VM& vm, const std::vector<Value>& args) {
+  if ((args.size() - 1) % 2 != 0) {
+    throw RuntimeError("sound/play expects asset and keyword/value options");
+  }
+  auto* audio = vm.audio();
+  if (!audio) {
+    return Value::nil();
+  }
+
+  audio::AudioCommand command;
+  command.type = audio::AudioCommandType::PlaySound;
+  command.asset = keywordArg(args[0]);
+  command.volume = optionNumber(vm, args, ":volume", 1.0f);
+  command.pitch = optionNumber(vm, args, ":pitch", 1.0f);
+  audio->enqueue(command);
+  return Value::nil();
+}
+
+Value nativeMusicPlay(VM& vm, const std::vector<Value>& args) {
+  if ((args.size() - 1) % 2 != 0) {
+    throw RuntimeError("music/play expects asset and keyword/value options");
+  }
+  auto* audio = vm.audio();
+  if (!audio) {
+    return Value::nil();
+  }
+
+  audio::AudioCommand command;
+  command.type = audio::AudioCommandType::PlayMusic;
+  command.asset = keywordArg(args[0]);
+  command.volume = optionNumber(vm, args, ":volume", 1.0f);
+  audio->enqueue(command);
+  return Value::nil();
+}
+
+Value nativeMusicStop(VM& vm, const std::vector<Value>&) {
+  auto* audio = vm.audio();
+  if (audio) {
+    audio::AudioCommand command;
+    command.type = audio::AudioCommandType::StopMusic;
+    audio->enqueue(command);
+  }
+  return Value::nil();
+}
+
+Value nativeMusicSetVolume(VM& vm, const std::vector<Value>& args) {
+  auto* audio = vm.audio();
+  if (audio) {
+    audio::AudioCommand command;
+    command.type = audio::AudioCommandType::SetMusicVolume;
+    command.volume = static_cast<float>(numberArg(args[0]));
+    audio->enqueue(command);
+  }
+  return Value::nil();
+}
+
 Value renderNode(VM& vm, std::string_view type) {
   std::map<StringId, Value> entries;
   entries[vm.interner().intern(":node")] = Value::keywordValue(vm.interner().intern(type));
@@ -863,6 +933,11 @@ void registerCoreNatives(VM& vm) {
   define(vm, "pointer-held?", nativePointerHeld, 0, 0);
   define(vm, "pointer-pressed?", nativePointerPressed, 0, 0);
   define(vm, "pointer-released?", nativePointerReleased, 0, 0);
+
+  define(vm, "sound/play", nativeSoundPlay, 1, -1);
+  define(vm, "music/play", nativeMusicPlay, 1, -1);
+  define(vm, "music/stop", nativeMusicStop, 0, 0);
+  define(vm, "music/set-volume", nativeMusicSetVolume, 1, 1);
 
   vm.defineGlobal("empty", renderNode(vm, ":empty"));
   define(vm, "clear", nativeClear, 1, 1);

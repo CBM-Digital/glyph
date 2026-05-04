@@ -1,0 +1,43 @@
+(game perfect-shot-headless
+  :title "Perfect Shot Headless"
+  :size [360 640]
+  :assets
+  {:hit "assets/hit.wav"
+   :main "assets/main.ttf"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial
+  {:angle 0
+   :target 90
+   :score 0
+   :dead false})
+
+(defn update [dt state]
+  (if (:dead state)
+    state
+    (update state :angle + (* 180 dt))))
+
+(defn view [state]
+  (group
+    (clear "#050510")
+    (circle :x 180 :y 320 :r 120 :color "#222")
+    (line :x1 180
+          :y1 320
+          :x2 (+ 180 (* 120 (cos (deg->rad (:angle state)))))
+          :y2 (+ 320 (* 120 (sin (deg->rad (:angle state)))))
+          :width 4
+          :color "#fff")
+    (line :x1 180
+          :y1 320
+          :x2 (+ 180 (* 120 (cos (deg->rad (:target state)))))
+          :y2 (+ 320 (* 120 (sin (deg->rad (:target state)))))
+          :width 4
+          :color "#f55")
+    (text :font :main
+          :value (str "Score " (:score state))
+          :x 16
+          :y 16
+          :size 24
+          :color "#fff")))

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "assets/AssetManager.h"
+#include "audio/AudioSystem.h"
 #include "game/GameInstance.h"
 #include "input/InputSystem.h"
 #include "render/DrawCommand.h"
@@ -31,6 +33,8 @@ public:
 
   script::VM& vm();
   input::InputSystem& input();
+  assets::AssetManager& assets();
+  audio::AudioSystem& audio();
 
 private:
   script::Value metadataField(const script::Value& metadata, std::string_view key);
@@ -40,6 +44,8 @@ private:
 
   script::VM vm_;
   input::InputSystem input_;
+  assets::AssetManager assets_;
+  audio::AudioSystem audio_;
   GameInstance instance_;
 };
 
