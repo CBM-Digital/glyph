@@ -1,6 +1,7 @@
 #include "script/Native.h"
 
 #include "script/Error.h"
+#include "input/InputSystem.h"
 #include "script/VM.h"
 
 #include <algorithm>
@@ -567,6 +568,82 @@ Value nativePointInCircle(VM& vm, const std::vector<Value>& args) {
   return Value::booleanValue(dx * dx + dy * dy <= r * r);
 }
 
+const glyph::input::InputSystem* inputOrNull(const VM& vm) { return vm.input(); }
+
+glyph::input::SwipeDirection swipeDirection(VM& vm, const Value& value) {
+  const StringId id = keywordArg(value);
+  const auto name = vm.interner().resolve(id);
+  if (name == ":left") {
+    return glyph::input::SwipeDirection::Left;
+  }
+  if (name == ":right") {
+    return glyph::input::SwipeDirection::Right;
+  }
+  if (name == ":up") {
+    return glyph::input::SwipeDirection::Up;
+  }
+  if (name == ":down") {
+    return glyph::input::SwipeDirection::Down;
+  }
+  return glyph::input::SwipeDirection::None;
+}
+
+Value nativePressed(VM& vm, const std::vector<Value>& args) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->pressed(keywordArg(args[0])));
+}
+
+Value nativeHeld(VM& vm, const std::vector<Value>& args) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->held(keywordArg(args[0])));
+}
+
+Value nativeReleased(VM& vm, const std::vector<Value>& args) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->released(keywordArg(args[0])));
+}
+
+Value nativeAxis(VM& vm, const std::vector<Value>& args) {
+  const auto* input = inputOrNull(vm);
+  return Value::numberValue(input ? input->axis(keywordArg(args[0])) : 0.0);
+}
+
+Value nativeSwipe(VM& vm, const std::vector<Value>& args) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->swipe(swipeDirection(vm, args[0])));
+}
+
+Value nativePointerX(VM& vm, const std::vector<Value>&) {
+  const auto* input = inputOrNull(vm);
+  return Value::numberValue(input ? input->pointerPosition().x : 0.0);
+}
+
+Value nativePointerY(VM& vm, const std::vector<Value>&) {
+  const auto* input = inputOrNull(vm);
+  return Value::numberValue(input ? input->pointerPosition().y : 0.0);
+}
+
+Value nativePointerPos(VM& vm, const std::vector<Value>&) {
+  const auto* input = inputOrNull(vm);
+  const Vec2 pos = input ? input->pointerPosition() : Vec2{};
+  return Value::vectorValue({Value::numberValue(pos.x), Value::numberValue(pos.y)});
+}
+
+Value nativePointerHeld(VM& vm, const std::vector<Value>&) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->pointerHeld());
+}
+
+Value nativePointerPressed(VM& vm, const std::vector<Value>&) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->pointerPressed());
+}
+
+Value nativePointerReleased(VM& vm, const std::vector<Value>&) {
+  const auto* input = inputOrNull(vm);
+  return Value::booleanValue(input && input->pointerReleased());
+}
+
 Value renderNode(VM& vm, std::string_view type) {
   std::map<StringId, Value> entries;
   entries[vm.interner().intern(":node")] = Value::keywordValue(vm.interner().intern(type));
@@ -774,6 +851,18 @@ void registerCoreNatives(VM& vm) {
   define(vm, "circle-box", nativeCircleBox, 3, 3);
   define(vm, "circle-overlap?", nativeCircleOverlap, 2, 2);
   define(vm, "point-in-circle?", nativePointInCircle, 3, 3);
+
+  define(vm, "pressed?", nativePressed, 1, 1);
+  define(vm, "held?", nativeHeld, 1, 1);
+  define(vm, "released?", nativeReleased, 1, 1);
+  define(vm, "axis", nativeAxis, 1, 1);
+  define(vm, "swipe?", nativeSwipe, 1, 1);
+  define(vm, "pointer-x", nativePointerX, 0, 0);
+  define(vm, "pointer-y", nativePointerY, 0, 0);
+  define(vm, "pointer-pos", nativePointerPos, 0, 0);
+  define(vm, "pointer-held?", nativePointerHeld, 0, 0);
+  define(vm, "pointer-pressed?", nativePointerPressed, 0, 0);
+  define(vm, "pointer-released?", nativePointerReleased, 0, 0);
 
   vm.defineGlobal("empty", renderNode(vm, ":empty"));
   define(vm, "clear", nativeClear, 1, 1);

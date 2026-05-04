@@ -8,6 +8,10 @@
 #include <string_view>
 #include <vector>
 
+namespace glyph::input {
+class InputSystem;
+}
+
 namespace glyph::script {
 
 class VM {
@@ -25,6 +29,8 @@ public:
   StringInterner& interner();
   const StringInterner& interner() const;
   std::shared_ptr<Env> globals() const;
+  void setInputSystem(const glyph::input::InputSystem* input);
+  const glyph::input::InputSystem* input() const;
 
 private:
   Value evalList(const AstPtr& node, const std::shared_ptr<Env>& env);
@@ -39,6 +45,7 @@ private:
   Value evalFor(const AstPtr& node, const std::shared_ptr<Env>& env);
   Value evalAnd(const AstPtr& node, const std::shared_ptr<Env>& env);
   Value evalOr(const AstPtr& node, const std::shared_ptr<Env>& env);
+  Value evalGame(const AstPtr& node, const std::shared_ptr<Env>& env);
 
   std::vector<StringId> readParamList(const AstPtr& node, std::string_view formName);
   bool isSymbolNamed(const AstPtr& node, std::string_view name) const;
@@ -46,6 +53,7 @@ private:
 
   StringInterner interner_;
   std::shared_ptr<Env> globals_;
+  const glyph::input::InputSystem* input_ = nullptr;
 };
 
 } // namespace glyph::script

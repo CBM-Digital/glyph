@@ -83,6 +83,10 @@ const StringInterner& VM::interner() const { return interner_; }
 
 std::shared_ptr<Env> VM::globals() const { return globals_; }
 
+void VM::setInputSystem(const glyph::input::InputSystem* input) { input_ = input; }
+
+const glyph::input::InputSystem* VM::input() const { return input_; }
+
 Value VM::evalList(const AstPtr& node, const std::shared_ptr<Env>& env) {
   if (node->children.empty()) {
     return Value::nil();
@@ -123,6 +127,9 @@ Value VM::evalList(const AstPtr& node, const std::shared_ptr<Env>& env) {
     }
     if (name == "or") {
       return evalOr(node, env);
+    }
+    if (name == "game") {
+      return evalGame(node, env);
     }
   }
 
@@ -290,6 +297,38 @@ Value VM::evalOr(const AstPtr& node, const std::shared_ptr<Env>& env) {
     }
   }
   return Value::nil();
+}
+
+Value VM::evalGame(const AstPtr& node, const std::shared_ptr<Env>& env) {
+  if (node->children.size() < 2 || node->children[1]->kind != AstKind::Symbol) {
+    throw RuntimeError("game expects a symbolic game id");
+  }
+  if ((node->children.size() - 2) % 2 != 0) {
+    throw RuntimeError("game expects keyword/value metadata pairs");
+  }
+
+  std::map<StringId, Value> metadata;
+  const std::string id = symbolName(node->children[1]);
+  metadata[interner_.intern(":id")] = Value::keywordValue(interner_.intern(":" + id));
+
+  for (std::size_t i = 2; i < node->children.size(); i += 2) {
+    const AstPtr& key = node->children[i];
+    const AstPtr& valueNode = node->children[i + 1];
+    if (key->kind != AstKind::Keyword) {
+      throw RuntimeError("game metadata keys must be keywords");
+    }
+
+    if (valueNode->kind == AstKind::Symbol) {
+      metadata[key->id] =
+          Value::keywordValue(interner_.intern(":" + std::string(interner_.resolve(valueNode->id))));
+    } else {
+      metadata[key->id] = eval(valueNode, env);
+    }
+  }
+
+  Value game = Value::mapValue(std::move(metadata));
+  defineGlobal("__game__", game);
+  return game;
 }
 
 Value VM::call(Value callee, const std::vector<Value>& args) {
