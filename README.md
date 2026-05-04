@@ -1,4 +1,3 @@
-````markdown
 # Glyph
 
 **Glyph** is a small, production-oriented 2D game runtime written in C++ with games authored in a tiny Lisp-like scripting language.
@@ -3259,7 +3258,3 @@ complex engine object model
 The success of Glyph is not measured by how many engine features it has.
 
 It is measured by whether a developer can make a fun, polished arcade game in a tiny script file, iterate live, and ship it inside a real product.
-
-```
-```
-
