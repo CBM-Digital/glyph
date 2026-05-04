@@ -24,23 +24,56 @@ GameHost::GameHost() {
 }
 
 void GameHost::loadSource(std::string_view source, std::string file) {
-  vm_ = script::VM();
+  LoadedScript loaded = compileSource(source, std::move(file));
+  vm_ = std::move(loaded.vm);
   vm_.setInputSystem(&input_);
   vm_.setAudioSystem(&audio_);
-  vm_.evalSource(source, std::move(file));
+  assets_ = std::move(loaded.assets);
+  audio_.setAssetManager(&assets_);
+  audio_.flush();
+  instance_ = GameInstance{};
+  instance_.definition = std::move(loaded.definition);
+  instance_.state = instance_.definition.initialState;
+  instance_.active = true;
+  lastReloadError_.clear();
+}
 
-  const auto metadata = vm_.globals()->lookup(vm_.interner().intern("__game__"));
+ReloadResult GameHost::reloadSourcePreservingState(std::string_view source, std::string file) {
+  try {
+    LoadedScript loaded = compileSource(source, std::move(file));
+    script::Value preservedState = remapStateForReload(instance_.state, vm_.interner(), loaded.vm.interner());
+
+    vm_ = std::move(loaded.vm);
+    vm_.setInputSystem(&input_);
+    vm_.setAudioSystem(&audio_);
+    assets_ = std::move(loaded.assets);
+    instance_.definition = std::move(loaded.definition);
+    instance_.state = std::move(preservedState);
+    instance_.active = true;
+    audio_.setAssetManager(&assets_);
+    audio_.flush();
+    lastReloadError_.clear();
+    return ReloadResult{true, ""};
+  } catch (const script::ScriptError& error) {
+    lastReloadError_ = error.what();
+    return ReloadResult{false, lastReloadError_};
+  }
+}
+
+GameHost::LoadedScript GameHost::compileSource(std::string_view source, std::string file) {
+  LoadedScript loaded;
+  loaded.vm.setInputSystem(&input_);
+  loaded.vm.setAudioSystem(&audio_);
+  loaded.vm.evalSource(source, std::move(file));
+
+  const auto metadata = loaded.vm.globals()->lookup(loaded.vm.interner().intern("__game__"));
   if (!metadata || metadata->kind != script::ValueKind::Map) {
     fail("script did not declare a game");
   }
 
-  instance_ = GameInstance{};
-  instance_.definition = extractDefinition(*metadata);
-  assets_.loadManifest(instance_.definition.assetManifest, vm_.interner());
-  audio_.setAssetManager(&assets_);
-  audio_.flush();
-  instance_.state = instance_.definition.initialState;
-  instance_.active = true;
+  loaded.definition = extractDefinition(loaded.vm, *metadata);
+  loaded.assets.loadManifest(loaded.definition.assetManifest, loaded.vm.interner());
+  return loaded;
 }
 
 void GameHost::reset() {
@@ -48,6 +81,8 @@ void GameHost::reset() {
   instance_.accumulator = 0.0;
   instance_.active = true;
   instance_.paused = false;
+  audio_.setAssetManager(&assets_);
+  audio_.flush();
 }
 
 void GameHost::setPaused(bool paused) {
@@ -95,53 +130,56 @@ assets::AssetManager& GameHost::assets() { return assets_; }
 
 audio::AudioSystem& GameHost::audio() { return audio_; }
 
-script::Value GameHost::metadataField(const script::Value& metadata, std::string_view key) {
-  auto found = metadata.map->find(vm_.interner().intern(key));
+const std::string& GameHost::lastReloadError() const { return lastReloadError_; }
+
+script::Value GameHost::metadataField(script::VM& vm, const script::Value& metadata, std::string_view key) {
+  auto found = metadata.map->find(vm.interner().intern(key));
   if (found == metadata.map->end()) {
     fail(std::string("game is missing required field ") + std::string(key));
   }
   return found->second;
 }
 
-script::Value GameHost::resolveMetadataValue(const script::Value& value, std::string_view fieldName) {
+script::Value GameHost::resolveMetadataValue(script::VM& vm, const script::Value& value,
+                                             std::string_view fieldName) {
   if (value.kind != script::ValueKind::Keyword) {
     return value;
   }
 
-  std::string name(vm_.interner().resolve(value.id));
+  std::string name(vm.interner().resolve(value.id));
   if (!name.empty() && name.front() == ':') {
     name.erase(name.begin());
   }
 
-  auto resolved = vm_.globals()->lookup(vm_.interner().intern(name));
+  auto resolved = vm.globals()->lookup(vm.interner().intern(name));
   if (!resolved) {
     fail(std::string("game field ") + std::string(fieldName) + " references undefined symbol " + name);
   }
   return *resolved;
 }
 
-GameDefinition GameHost::extractDefinition(const script::Value& metadata) {
+GameDefinition GameHost::extractDefinition(script::VM& vm, const script::Value& metadata) {
   GameDefinition definition;
 
-  const script::Value id = metadataField(metadata, ":id");
+  const script::Value id = metadataField(vm, metadata, ":id");
   if (id.kind != script::ValueKind::Keyword) {
     fail("game :id must be a keyword");
   }
   definition.id = id.id;
 
-  const script::Value title = metadataField(metadata, ":title");
+  const script::Value title = metadataField(vm, metadata, ":title");
   if (title.kind != script::ValueKind::String) {
     fail("game :title must be a string");
   }
   definition.title = title.text;
 
-  const script::Value size = metadataField(metadata, ":size");
+  const script::Value size = metadataField(vm, metadata, ":size");
   definition.logicalSize.x = static_cast<float>(vectorNumber(size, 0, ":size"));
   definition.logicalSize.y = static_cast<float>(vectorNumber(size, 1, ":size"));
 
-  definition.initialState = resolveMetadataValue(metadataField(metadata, ":initial"), ":initial");
-  definition.updateFn = resolveMetadataValue(metadataField(metadata, ":update"), ":update");
-  definition.viewFn = resolveMetadataValue(metadataField(metadata, ":view"), ":view");
+  definition.initialState = resolveMetadataValue(vm, metadataField(vm, metadata, ":initial"), ":initial");
+  definition.updateFn = resolveMetadataValue(vm, metadataField(vm, metadata, ":update"), ":update");
+  definition.viewFn = resolveMetadataValue(vm, metadataField(vm, metadata, ":view"), ":view");
 
   if (definition.updateFn.kind != script::ValueKind::Function &&
       definition.updateFn.kind != script::ValueKind::NativeFunction) {
@@ -152,10 +190,45 @@ GameDefinition GameHost::extractDefinition(const script::Value& metadata) {
     fail("game :view must resolve to a function");
   }
 
-  auto assets = metadata.map->find(vm_.interner().intern(":assets"));
+  auto assets = metadata.map->find(vm.interner().intern(":assets"));
   definition.assetManifest = assets == metadata.map->end() ? script::Value::nil() : assets->second;
 
   return definition;
+}
+
+script::Value GameHost::remapStateForReload(const script::Value& value, const StringInterner& oldInterner,
+                                            StringInterner& newInterner) const {
+  switch (value.kind) {
+  case script::ValueKind::Nil:
+    return script::Value::nil();
+  case script::ValueKind::Bool:
+    return script::Value::booleanValue(value.boolean);
+  case script::ValueKind::Number:
+    return script::Value::numberValue(value.number);
+  case script::ValueKind::String:
+    return script::Value::stringValue(value.text);
+  case script::ValueKind::Keyword:
+    return script::Value::keywordValue(newInterner.intern(oldInterner.resolve(value.id)));
+  case script::ValueKind::Vector: {
+    std::vector<script::Value> values;
+    values.reserve(value.vector->size());
+    for (const auto& item : *value.vector) {
+      values.push_back(remapStateForReload(item, oldInterner, newInterner));
+    }
+    return script::Value::vectorValue(std::move(values));
+  }
+  case script::ValueKind::Map: {
+    std::map<StringId, script::Value> entries;
+    for (const auto& [key, item] : *value.map) {
+      entries[newInterner.intern(oldInterner.resolve(key))] =
+          remapStateForReload(item, oldInterner, newInterner);
+    }
+    return script::Value::mapValue(std::move(entries));
+  }
+  case script::ValueKind::Function:
+  case script::ValueKind::NativeFunction:
+    fail("cannot preserve non-serializable function value in game state during reload");
+  }
 }
 
 void GameHost::fail(std::string_view message) const { throw script::RuntimeError(std::string(message)); }

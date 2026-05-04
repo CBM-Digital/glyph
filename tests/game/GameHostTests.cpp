@@ -39,6 +39,25 @@ std::string movingRectGame() {
   )";
 }
 
+std::string reloadableGame(const std::string& color) {
+  return R"(
+    (game reloadable
+      :title "Reloadable"
+      :size [160 120]
+      :initial initial
+      :update update
+      :view view)
+
+    (def initial {:x 0 :tag :same})
+
+    (defn update [dt state]
+      (update state :x + 1))
+
+    (defn view [state]
+      (rect :x (:x state) :y 10 :w 20 :h 20 :color ")" + color + R"("))
+  )";
+}
+
 void testMilestoneAcceptanceGameLoop() {
   glyph::game::GameHost host;
   host.loadSource(movingRectGame());
@@ -181,6 +200,52 @@ void testAssetsRenderingAndAudioQueue() {
   require(host.audio().commands().empty(), "audio flush clears queue");
 }
 
+void testHotReloadPreservesStateAndSwapsCode() {
+  glyph::game::GameHost host;
+  host.loadSource(reloadableGame("#fff"));
+  host.tick(1.0 / 60.0);
+  requireNumber(host.state().map->at(host.vm().interner().intern(":x")), 1.0, "pre-reload state");
+
+  const auto beforeCommands = host.renderView();
+  require(beforeCommands[0].color == "#fff", "initial view color");
+
+  const auto result = host.reloadSourcePreservingState(reloadableGame("#f55"));
+  require(result.success, "hot reload succeeds");
+  require(host.lastReloadError().empty(), "reload error clears on success");
+  requireNumber(host.state().map->at(host.vm().interner().intern(":x")), 1.0, "reload preserves state");
+  require(glyph::script::valueToString(host.state().map->at(host.vm().interner().intern(":tag")),
+                                       host.vm().interner()) == ":same",
+          "reload re-interns state keywords");
+
+  const auto afterCommands = host.renderView();
+  require(afterCommands[0].color == "#f55", "reload swaps view code");
+
+  host.tick(1.0 / 60.0);
+  requireNumber(host.state().map->at(host.vm().interner().intern(":x")), 2.0, "reloaded update still runs");
+}
+
+void testHotReloadFailureKeepsOldCodeRunning() {
+  glyph::game::GameHost host;
+  host.loadSource(reloadableGame("#fff"));
+  host.tick(1.0 / 60.0);
+
+  const auto result = host.reloadSourcePreservingState("(game broken");
+  require(!result.success, "bad reload fails");
+  require(!host.lastReloadError().empty(), "bad reload stores error");
+  requireNumber(host.state().map->at(host.vm().interner().intern(":x")), 1.0,
+                "bad reload preserves current state");
+  require(host.renderView()[0].color == "#fff", "bad reload preserves old view");
+
+  host.tick(1.0 / 60.0);
+  requireNumber(host.state().map->at(host.vm().interner().intern(":x")), 2.0,
+                "bad reload keeps old update running");
+
+  const auto recovery = host.reloadSourcePreservingState(reloadableGame("#0f0"));
+  require(recovery.success, "reload recovers after failure");
+  require(host.lastReloadError().empty(), "recovery clears error");
+  require(host.renderView()[0].color == "#0f0", "recovery swaps view");
+}
+
 } // namespace
 
 int main() {
@@ -189,6 +254,8 @@ int main() {
     testAccumulatorPauseAndReset();
     testInputBridge();
     testAssetsRenderingAndAudioQueue();
+    testHotReloadPreservesStateAndSwapsCode();
+    testHotReloadFailureKeepsOldCodeRunning();
   } catch (const glyph::script::ScriptError& error) {
     std::cerr << "ScriptError: " << error.what() << '\n';
     return 1;

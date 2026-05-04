@@ -317,6 +317,16 @@ void loadSDLAssets(SDLState& sdl, game::GameHost& host, const std::filesystem::p
   }
 }
 
+void clearLoadedAssets(SDLState& sdl) {
+  for (auto& [_, texture] : sdl.textures) {
+    if (texture.texture) {
+      SDL_DestroyTexture(texture.texture);
+    }
+  }
+  sdl.textures.clear();
+  sdl.audio.clear();
+}
+
 void processAudio(SDLState& sdl, game::GameHost& host) {
   for (const auto& command : host.audio().commands()) {
     switch (command.type) {
@@ -336,6 +346,20 @@ void processAudio(SDLState& sdl, game::GameHost& host) {
     }
   }
   host.audio().flush();
+}
+
+std::string overlayText(std::string value) {
+  constexpr std::size_t maxLength = 36;
+  if (value.size() > maxLength) {
+    value.resize(maxLength);
+  }
+  for (char& c : value) {
+    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    if (!std::isalnum(static_cast<unsigned char>(c)) && c != ' ') {
+      c = ' ';
+    }
+  }
+  return value;
 }
 
 std::array<std::string_view, 7> glyphFor(char c) {
@@ -419,6 +443,37 @@ void drawText(SDL_Renderer* renderer, const Transform& transform, const render::
     }
     cursor += pixel * 4.0f;
   }
+}
+
+void drawReloadErrorOverlay(SDL_Renderer* renderer, int width, const std::string& error) {
+  if (error.empty()) {
+    return;
+  }
+
+  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+  SDL_SetRenderDrawColor(renderer, 15, 10, 16, 220);
+  SDL_FRect background{8.0f, 8.0f, static_cast<float>(std::max(240, width - 16)), 58.0f};
+  SDL_RenderFillRectF(renderer, &background);
+  SDL_SetRenderDrawColor(renderer, 255, 85, 85, 255);
+  SDL_RenderDrawRectF(renderer, &background);
+
+  render::DrawCommand title;
+  title.type = render::DrawCommandType::Text;
+  title.x = 16;
+  title.y = 18;
+  title.scale = 16;
+  title.color = "#f55";
+  title.text = "RELOAD ERROR";
+  drawText(renderer, Transform{}, title);
+
+  render::DrawCommand detail;
+  detail.type = render::DrawCommandType::Text;
+  detail.x = 16;
+  detail.y = 42;
+  detail.scale = 12;
+  detail.color = "#fff";
+  detail.text = overlayText(error);
+  drawText(renderer, Transform{}, detail);
 }
 
 void drawCircle(SDL_Renderer* renderer, const Transform& transform, const render::DrawCommand& command) {
@@ -577,11 +632,7 @@ void consumeEvent(game::GameHost& host, const SDL_Event& event, bool& running) {
 }
 
 void cleanup(SDLState& sdl) {
-  for (auto& [_, texture] : sdl.textures) {
-    if (texture.texture) {
-      SDL_DestroyTexture(texture.texture);
-    }
-  }
+  clearLoadedAssets(sdl);
   if (sdl.audioDevice != 0) {
     SDL_CloseAudioDevice(sdl.audioDevice);
   }
@@ -639,6 +690,10 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
   }
 
   loadSDLAssets(sdl, host, gameFile);
+  auto lastWriteTime = std::filesystem::exists(gameFile) ? std::filesystem::last_write_time(gameFile)
+                                                        : std::filesystem::file_time_type{};
+  double reloadPollSeconds = 0.0;
+  std::string reloadError;
 
   bool running = true;
   Uint64 last = SDL_GetPerformanceCounter();
@@ -656,10 +711,40 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
       consumeEvent(host, event, running);
     }
 
+    reloadPollSeconds += dt;
+    if (reloadPollSeconds >= 0.25) {
+      reloadPollSeconds = 0.0;
+      if (std::filesystem::exists(gameFile)) {
+        const auto writeTime = std::filesystem::last_write_time(gameFile);
+        if (writeTime != lastWriteTime) {
+          lastWriteTime = writeTime;
+          try {
+            const auto result = host.reloadSourcePreservingState(readFile(gameFileString), gameFileString);
+            if (result.success) {
+              reloadError.clear();
+              clearLoadedAssets(sdl);
+              loadSDLAssets(sdl, host, gameFile);
+              SDL_SetWindowTitle(sdl.window, host.definition().title.c_str());
+              SDL_RenderSetLogicalSize(sdl.renderer, static_cast<int>(host.definition().logicalSize.x),
+                                       static_cast<int>(host.definition().logicalSize.y));
+              std::cerr << "reloaded " << gameFileString << '\n';
+            } else {
+              reloadError = result.error;
+              std::cerr << "reload failed: " << reloadError << '\n';
+            }
+          } catch (const script::ScriptError& error) {
+            reloadError = error.what();
+            std::cerr << "reload failed: " << reloadError << '\n';
+          }
+        }
+      }
+    }
+
     host.tick(std::min(dt, 0.25));
     processAudio(sdl, host);
     const auto commands = host.renderView();
     renderCommands(sdl, commands);
+    drawReloadErrorOverlay(sdl.renderer, static_cast<int>(host.definition().logicalSize.x), reloadError);
     SDL_RenderPresent(sdl.renderer);
     host.input().endFrame();
 

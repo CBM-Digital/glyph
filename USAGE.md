@@ -68,6 +68,36 @@ For smoke tests, `--frames` closes the SDL window after a fixed number of render
 build/glyph --desktop examples/sprite-audio/game.glyph --frames 180
 ```
 
+## Live Reload
+
+The SDL desktop target watches the running `.glyph` file for changes. Edit and save the file while the window is open; Glyph reloads the script automatically.
+
+On successful reload:
+
+```text
+current game state is preserved
+update/view functions are replaced
+asset manifests are reloaded
+the window keeps running
+```
+
+On reload failure:
+
+```text
+the old script keeps running
+state is preserved
+a reload error overlay appears in the window
+the error is printed to stderr
+```
+
+Try it with:
+
+```bash
+build/glyph --desktop examples/moving-rect/game.glyph
+```
+
+Then change the rectangle color in `examples/moving-rect/game.glyph` and save.
+
 ## Example Games
 
 Moving rectangle:
