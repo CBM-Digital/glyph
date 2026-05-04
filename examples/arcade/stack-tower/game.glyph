@@ -1,0 +1,67 @@
+(game stack-tower
+  :title "Stack Tower"
+  :size [480 360]
+  :assets {:block "../assets/tower-blocks.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :x 40 :dir 1 :score 0 :settled []})
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
+
+(defn frame-for [n]
+  (case (mod n 5)
+    0 :block
+    1 :player
+    2 :obstacle
+    3 :target
+    else :marker))
+
+(defn block-node [i item]
+  (sprite :image :block
+          :frame (frame-for i)
+          :x (:x item)
+          :y (:y item)
+          :scale 3))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.6) (navigation/pop) state)
+    (pressed? :tap)
+      (do
+        (sound/play :blip :volume 0.75)
+        (assoc state
+          :score (+ (:score state) 1)
+          :settled (conj (:settled state) {:x (:x state) :y (- 292 (* (:score state) 24))})))
+    else
+      (let [next-x (+ (:x state) (* (:dir state) dt 190))
+            turn (or (< next-x 28) (> next-x 356))
+            dir (if turn (* -1 (:dir state)) (:dir state))]
+        (assoc state
+          :t (+ (:t state) dt)
+          :dir dir
+          :x (clamp next-x 28 356)))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 92 :h 36 :color "#2d3343")
+    (text :font :main :value "Back" :x 30 :y 20 :size 18 :color "#f8fafc")))
+
+(defn view [state]
+  (group
+    (clear "#101820")
+    (back-button)
+    (text :font :main :value "Stack Tower" :x 150 :y 28 :size 28 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#a7f3d0")
+    (rect :x 56 :y 326 :w 368 :h 10 :color "#4b5563")
+    (for [i (range (count (:settled state)))]
+      (block-node i (nth (:settled state) i)))
+    (transform :x (:x state) :y 88 :rotation (* 4 (sin (* (:t state) 8)))
+      (sprite :image :block :frame (frame-for (:score state)) :x 0 :y 0 :scale 3))
+    (text :font :main :value "Tap to drop the moving block" :x 124 :y 314 :size 18 :color "#dbeafe")))

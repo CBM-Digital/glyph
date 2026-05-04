@@ -100,6 +100,10 @@ void VM::setAudioSystem(glyph::audio::AudioSystem* audio) { audio_ = audio; }
 
 glyph::audio::AudioSystem* VM::audio() const { return audio_; }
 
+void VM::setNavigationSystem(glyph::game::NavigationSystem* navigation) { navigation_ = navigation; }
+
+glyph::game::NavigationSystem* VM::navigation() const { return navigation_; }
+
 Value VM::evalList(const AstPtr& node, const std::shared_ptr<Env>& env) {
   if (node->children.empty()) {
     return Value::nil();

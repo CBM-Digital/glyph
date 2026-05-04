@@ -124,10 +124,27 @@ DrawCommand RenderCompiler::compileCircle(const script::Value& node) const {
 DrawCommand RenderCompiler::compileLine(const script::Value& node) const {
   DrawCommand command;
   command.type = DrawCommandType::Line;
-  command.x1 = numberField(node, ":x1");
-  command.y1 = numberField(node, ":y1");
-  command.x2 = numberField(node, ":x2");
-  command.y2 = numberField(node, ":y2");
+  const script::Value* from = get(node, ":from");
+  const script::Value* angle = get(node, ":angle");
+  const script::Value* length = get(node, ":length");
+  if (from && angle && length) {
+    if (from->kind != script::ValueKind::Vector || from->vector->size() < 2 ||
+        (*from->vector)[0].kind != script::ValueKind::Number ||
+        (*from->vector)[1].kind != script::ValueKind::Number ||
+        angle->kind != script::ValueKind::Number || length->kind != script::ValueKind::Number) {
+      fail("line :from/:angle/:length fields are malformed");
+    }
+    command.x1 = (*from->vector)[0].number;
+    command.y1 = (*from->vector)[1].number;
+    const double radians = angle->number * 3.14159265358979323846 / 180.0;
+    command.x2 = command.x1 + std::cos(radians) * length->number;
+    command.y2 = command.y1 + std::sin(radians) * length->number;
+  } else {
+    command.x1 = numberField(node, ":x1");
+    command.y1 = numberField(node, ":y1");
+    command.x2 = numberField(node, ":x2");
+    command.y2 = numberField(node, ":y2");
+  }
   command.width = numberField(node, ":width", 1.0);
   command.color = stringField(node, ":color", "#fff");
   return command;

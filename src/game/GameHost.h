@@ -3,6 +3,7 @@
 #include "assets/AssetManager.h"
 #include "audio/AudioSystem.h"
 #include "game/GameInstance.h"
+#include "game/NavigationSystem.h"
 #include "input/InputSystem.h"
 #include "render/DrawCommand.h"
 #include "render/RenderCompiler.h"
@@ -41,6 +42,7 @@ public:
   input::InputSystem& input();
   assets::AssetManager& assets();
   audio::AudioSystem& audio();
+  NavigationSystem& navigation();
   const std::string& lastReloadError() const;
 
 private:
@@ -62,6 +64,7 @@ private:
   input::InputSystem input_;
   assets::AssetManager assets_;
   audio::AudioSystem audio_;
+  NavigationSystem navigation_;
   GameInstance instance_;
   std::string lastReloadError_;
 };

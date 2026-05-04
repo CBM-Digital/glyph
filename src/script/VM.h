@@ -17,6 +17,10 @@ namespace glyph::audio {
 class AudioSystem;
 }
 
+namespace glyph::game {
+class NavigationSystem;
+}
+
 namespace glyph::script {
 
 class VM {
@@ -38,6 +42,8 @@ public:
   const glyph::input::InputSystem* input() const;
   void setAudioSystem(glyph::audio::AudioSystem* audio);
   glyph::audio::AudioSystem* audio() const;
+  void setNavigationSystem(glyph::game::NavigationSystem* navigation);
+  glyph::game::NavigationSystem* navigation() const;
 
 private:
   Value evalList(const AstPtr& node, const std::shared_ptr<Env>& env);
@@ -63,6 +69,7 @@ private:
   std::unordered_map<StringId, Value> nativeFallbacks_;
   const glyph::input::InputSystem* input_ = nullptr;
   glyph::audio::AudioSystem* audio_ = nullptr;
+  glyph::game::NavigationSystem* navigation_ = nullptr;
 };
 
 } // namespace glyph::script

@@ -20,6 +20,7 @@ double vectorNumber(const script::Value& vector, std::size_t index, std::string_
 GameHost::GameHost() {
   vm_.setInputSystem(&input_);
   vm_.setAudioSystem(&audio_);
+  vm_.setNavigationSystem(&navigation_);
   audio_.setAssetManager(&assets_);
 }
 
@@ -28,9 +29,11 @@ void GameHost::loadSource(std::string_view source, std::string file) {
   vm_ = std::move(loaded.vm);
   vm_.setInputSystem(&input_);
   vm_.setAudioSystem(&audio_);
+  vm_.setNavigationSystem(&navigation_);
   assets_ = std::move(loaded.assets);
   audio_.setAssetManager(&assets_);
   audio_.flush();
+  navigation_.clear();
   instance_ = GameInstance{};
   instance_.definition = std::move(loaded.definition);
   instance_.state = instance_.definition.initialState;
@@ -46,6 +49,7 @@ ReloadResult GameHost::reloadSourcePreservingState(std::string_view source, std:
     vm_ = std::move(loaded.vm);
     vm_.setInputSystem(&input_);
     vm_.setAudioSystem(&audio_);
+    vm_.setNavigationSystem(&navigation_);
     assets_ = std::move(loaded.assets);
     instance_.definition = std::move(loaded.definition);
     instance_.state = std::move(preservedState);
@@ -64,6 +68,7 @@ GameHost::LoadedScript GameHost::compileSource(std::string_view source, std::str
   LoadedScript loaded;
   loaded.vm.setInputSystem(&input_);
   loaded.vm.setAudioSystem(&audio_);
+  loaded.vm.setNavigationSystem(&navigation_);
   loaded.vm.evalSource(source, std::move(file));
 
   const auto metadata = loaded.vm.globals()->lookup(loaded.vm.interner().intern("__game__"));
@@ -129,6 +134,8 @@ input::InputSystem& GameHost::input() { return input_; }
 assets::AssetManager& GameHost::assets() { return assets_; }
 
 audio::AudioSystem& GameHost::audio() { return audio_; }
+
+NavigationSystem& GameHost::navigation() { return navigation_; }
 
 const std::string& GameHost::lastReloadError() const { return lastReloadError_; }
 

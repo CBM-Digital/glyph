@@ -3,8 +3,12 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -18,6 +22,25 @@ void require(bool condition, const std::string& message) {
 void requireNumber(const glyph::script::Value& value, double expected, const std::string& message) {
   require(value.kind == glyph::script::ValueKind::Number, message + " kind");
   require(std::fabs(value.number - expected) < 0.000001, message);
+}
+
+std::string readFile(const std::filesystem::path& path) {
+  std::ifstream input(path);
+  require(static_cast<bool>(input), "open " + path.string());
+  std::ostringstream source;
+  source << input.rdbuf();
+  return source.str();
+}
+
+std::filesystem::path repoRoot() {
+  const auto cwd = std::filesystem::current_path();
+  if (std::filesystem::exists(cwd / "examples")) {
+    return cwd;
+  }
+  if (std::filesystem::exists(cwd.parent_path() / "examples")) {
+    return cwd.parent_path();
+  }
+  return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
 }
 
 std::string movingRectGame() {
@@ -246,6 +269,62 @@ void testHotReloadFailureKeepsOldCodeRunning() {
   require(host.renderView()[0].color == "#0f0", "recovery swaps view");
 }
 
+void testNavigationCommandsQueueFromScript() {
+  glyph::game::GameHost host;
+  host.loadSource(R"(
+    (game nav-test
+      :title "Nav Test"
+      :size [160 120]
+      :initial initial
+      :update update
+      :view view)
+
+    (def initial {:phase 0})
+
+    (defn update [dt state]
+      (case (:phase state)
+        0 (do
+            (navigation/push "perfect-shot/game.glyph")
+            (assoc state :phase 1))
+        1 (do
+            (navigation/pop)
+            (assoc state :phase 2))
+        else state))
+
+    (defn view [state] empty)
+  )");
+
+  host.tick(1.0 / 60.0);
+  require(host.navigation().commands().size() == 1, "navigation push queued");
+  require(host.navigation().commands()[0].type == glyph::game::NavigationCommandType::Push,
+          "push command type");
+  require(host.navigation().commands()[0].target == "perfect-shot/game.glyph", "push target");
+
+  host.navigation().clear();
+  host.tick(1.0 / 60.0);
+  require(host.navigation().commands().size() == 1, "navigation pop queued");
+  require(host.navigation().commands()[0].type == glyph::game::NavigationCommandType::Pop,
+          "pop command type");
+}
+
+void testArcadeExampleScenesCompileAndRender() {
+  const auto root = repoRoot();
+  const std::vector<std::filesystem::path> scenes{
+      root / "examples/arcade/index.glyph",
+      root / "examples/arcade/perfect-shot/game.glyph",
+      root / "examples/arcade/stack-tower/game.glyph",
+      root / "examples/arcade/lane-dodger/game.glyph",
+  };
+
+  for (const auto& scene : scenes) {
+    glyph::game::GameHost host;
+    host.loadSource(readFile(scene), scene.string());
+    host.tick(1.0 / 60.0);
+    require(!host.renderView().empty(), "arcade scene renders " + scene.string());
+    require(!host.assets().assets().empty(), "arcade scene has assets " + scene.string());
+  }
+}
+
 } // namespace
 
 int main() {
@@ -256,6 +335,8 @@ int main() {
     testAssetsRenderingAndAudioQueue();
     testHotReloadPreservesStateAndSwapsCode();
     testHotReloadFailureKeepsOldCodeRunning();
+    testNavigationCommandsQueueFromScript();
+    testArcadeExampleScenesCompileAndRender();
   } catch (const glyph::script::ScriptError& error) {
     std::cerr << "ScriptError: " << error.what() << '\n';
     return 1;

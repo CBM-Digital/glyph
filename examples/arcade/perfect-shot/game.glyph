@@ -1,0 +1,68 @@
+(game perfect-shot
+  :title "Perfect Shot"
+  :size [480 360]
+  :assets {:orb "../assets/perfect-shot.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :angle 0 :target 42 :score 0 :flash 0})
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
+
+(defn shot-diff [angle target]
+  (min (abs (- angle target)) (abs (- angle (+ target 360))) (abs (- (+ angle 360) target))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.6) (navigation/pop) state)
+    (pressed? :tap)
+      (let [diff (shot-diff (:angle state) (:target state))
+            hit (< diff 12)]
+        (do
+          (sound/play :blip :volume 0.8)
+          (assoc state
+            :score (if hit (+ (:score state) 1) (:score state))
+            :target (mod (+ (:target state) 67) 360)
+            :flash (if hit 1 0.45))))
+    else
+      (assoc state
+        :t (+ (:t state) dt)
+        :angle (mod (+ (:angle state) (* dt (+ 90 (* 18 (axis :move-x))))) 360)
+        :flash (max 0 (- (:flash state) (* dt 2))))))
+
+(defn orb-frame [score]
+  (case (mod score 5)
+    0 :block
+    1 :player
+    2 :obstacle
+    3 :target
+    else :marker))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 92 :h 36 :color "#2d3343")
+    (text :font :main :value "Back" :x 30 :y 20 :size 18 :color "#f8fafc")))
+
+(defn view [state]
+  (let [cx 240
+        cy 204
+        angle (:angle state)
+        target (:target state)
+        pulse (+ 1 (* (:flash state) 0.4))]
+    (group
+      (clear "#111827")
+      (back-button)
+      (text :font :main :value "Perfect Shot" :x 142 :y 28 :size 28 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#a7f3d0")
+      (circle :x cx :y cy :r 82 :color "#1f2937")
+      (line :from [cx cy] :angle target :length 92 :width 3 :color "#80ed99")
+      (line :from [cx cy] :angle angle :length 96 :width 3 :color "#69d2ff")
+      (transform :x (- cx 32) :y (- cy 32) :rotation (* (:t state) 120) :scale pulse
+        (sprite :image :orb :frame (orb-frame (:score state)) :x 0 :y 0 :scale 2))
+      (text :font :main :value "Tap when blue meets green" :x 132 :y 314 :size 18 :color "#dbeafe"))))

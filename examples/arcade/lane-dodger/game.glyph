@@ -1,0 +1,66 @@
+(game lane-dodger
+  :title "Lane Dodger"
+  :size [480 360]
+  :assets {:car "../assets/lane-cars.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :lane 1 :enemy-lane 0 :enemy-y -40 :score 0 :flash 0})
+
+(defn lane-x [lane]
+  (+ 126 (* lane 92)))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
+
+(defn lane-frame [n]
+  (case (mod n 5)
+    0 :block
+    1 :player
+    2 :obstacle
+    3 :target
+    else :marker))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.6) (navigation/pop) state)
+    (pressed? :left)
+      (do (sound/play :blip :volume 0.35) (assoc state :lane (max 0 (- (:lane state) 1))))
+    (pressed? :right)
+      (do (sound/play :blip :volume 0.35) (assoc state :lane (min 2 (+ (:lane state) 1))))
+    else
+      (let [enemy-y (+ (:enemy-y state) (* dt (+ 120 (* (:score state) 4))))
+            passed (> enemy-y 390)
+            hit (and (> enemy-y 244) (< enemy-y 302) (= (:enemy-lane state) (:lane state)))]
+        (cond
+          hit (do
+                (sound/play :pop :volume 0.8)
+                (assoc state :enemy-y -40 :enemy-lane (rand-int 3) :score 0 :flash 1))
+          passed (do
+                   (sound/play :blip :volume 0.55)
+                   (assoc state :enemy-y -40 :enemy-lane (rand-int 3) :score (+ (:score state) 1)))
+          else (assoc state :t (+ (:t state) dt) :enemy-y enemy-y :flash (max 0 (- (:flash state) (* dt 3))))))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 92 :h 36 :color "#2d3343")
+    (text :font :main :value "Back" :x 30 :y 20 :size 18 :color "#f8fafc")))
+
+(defn view [state]
+  (group
+    (clear (if (> (:flash state) 0) "#3a1720" "#121722"))
+    (back-button)
+    (text :font :main :value "Lane Dodger" :x 146 :y 28 :size 28 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#fde68a")
+    (rect :x 116 :y 92 :w 248 :h 238 :color "#1f2937")
+    (line :x1 198 :y1 92 :x2 198 :y2 330 :width 2 :color "#374151")
+    (line :x1 290 :y1 92 :x2 290 :y2 330 :width 2 :color "#374151")
+    (sprite :image :car :frame (lane-frame (:enemy-lane state)) :x (lane-x (:enemy-lane state)) :y (:enemy-y state) :scale 2.4)
+    (transform :x (lane-x (:lane state)) :y 276 :rotation (* 3 (sin (* (:t state) 14)))
+      (sprite :image :car :frame :player :x 0 :y 0 :scale 2.4))
+    (text :font :main :value "Use left/right or A/D" :x 146 :y 332 :size 18 :color "#dbeafe")))

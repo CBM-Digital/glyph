@@ -1,6 +1,7 @@
 #include "script/Native.h"
 
 #include "audio/AudioSystem.h"
+#include "game/NavigationSystem.h"
 #include "script/Error.h"
 #include "input/InputSystem.h"
 #include "script/VM.h"
@@ -714,6 +715,26 @@ Value nativeMusicSetVolume(VM& vm, const std::vector<Value>& args) {
   return Value::nil();
 }
 
+Value nativeNavigationPush(VM& vm, const std::vector<Value>& args) {
+  auto* navigation = vm.navigation();
+  if (!navigation) {
+    return Value::nil();
+  }
+  if (args[0].kind != ValueKind::String) {
+    throw RuntimeError("navigation/push expects a scene file string");
+  }
+  navigation->push(args[0].text);
+  return Value::nil();
+}
+
+Value nativeNavigationPop(VM& vm, const std::vector<Value>&) {
+  auto* navigation = vm.navigation();
+  if (navigation) {
+    navigation->pop();
+  }
+  return Value::nil();
+}
+
 Value renderNode(VM& vm, std::string_view type) {
   std::map<StringId, Value> entries;
   entries[vm.interner().intern(":node")] = Value::keywordValue(vm.interner().intern(type));
@@ -938,6 +959,8 @@ void registerCoreNatives(VM& vm) {
   define(vm, "music/play", nativeMusicPlay, 1, -1);
   define(vm, "music/stop", nativeMusicStop, 0, 0);
   define(vm, "music/set-volume", nativeMusicSetVolume, 1, 1);
+  define(vm, "navigation/push", nativeNavigationPush, 1, 1);
+  define(vm, "navigation/pop", nativeNavigationPop, 0, 0);
 
   vm.defineGlobal("empty", renderNode(vm, ":empty"));
   define(vm, "clear", nativeClear, 1, 1);

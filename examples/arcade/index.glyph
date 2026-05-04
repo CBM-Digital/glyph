@@ -1,0 +1,56 @@
+(game arcade-index
+  :title "Glyph Arcade"
+  :size [480 360]
+  :assets {:logo "assets/glyph-logo.png"
+           :sprites "assets/perfect-shot.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "assets/blip.wav"
+           :theme "assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :music false})
+
+(defn hit? [x y w h]
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box x y w h))))
+
+(defn open [scene state]
+  (do
+    (sound/play :blip :volume 0.7)
+    (navigation/push scene)
+    state))
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.12)
+      (assoc state :music true))))
+
+(defn update [dt state]
+  (let [base (arm-music state)
+        next (assoc base :t (+ (:t base) dt))]
+    (cond
+      (hit? 86 120 308 52) (open "perfect-shot/game.glyph" next)
+      (hit? 86 186 308 52) (open "stack-tower/game.glyph" next)
+      (hit? 86 252 308 52) (open "lane-dodger/game.glyph" next)
+      else next)))
+
+(defn button [y label color]
+  (group
+    (rect :x 86 :y y :w 308 :h 52 :color color)
+    (text :font :main :value label :x 112 :y (+ y 13) :size 22 :color "#10151f")))
+
+(defn view [state]
+  (group
+    (clear "#121722")
+    (transform :x 54 :y 28 :rotation (* 8 (sin (* (:t state) 2)))
+      (sprite :image :logo :x 0 :y 0 :scale 0.72))
+    (text :font :main :value "Glyph Arcade" :x 130 :y 36 :size 34 :color "#f8fafc")
+    (text :font :main :value "Click a scene. Edit files while it runs." :x 130 :y 76 :size 16 :color "#a7b0c4")
+    (button 120 "Perfect Shot" "#69d2ff")
+    (button 186 "Stack Tower" "#80ed99")
+    (button 252 "Lane Dodger" "#ffd166")
+    (sprite :image :sprites :frame :marker :x 404 :y 38 :scale 1.6)))

@@ -3085,6 +3085,9 @@ fixing syntax error reloads successfully
 Implement:
 
 ```text
+desktop SDL target with SDL_image, SDL_ttf, SDL_mixer
+scene stack navigation with navigation/push and navigation/pop
+index scene that links to playable game scenes
 Perfect Shot
 Stack Tower
 Lane Dodger
@@ -3094,9 +3097,10 @@ Acceptance criteria:
 
 ```text
 each game fits in one file
+each game can be opened from index.glyph and popped back to the index
 each game runs at 60 FPS
 each game has score
-each game has restart
+each game uses PNG sprites, TTF text, sound, and input-driven animation
 each game uses only approved MVP APIs
 ```
 
