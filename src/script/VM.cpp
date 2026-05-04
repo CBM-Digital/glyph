@@ -118,6 +118,12 @@ Value VM::evalList(const AstPtr& node, const std::shared_ptr<Env>& env) {
     if (name == "for") {
       return evalFor(node, env);
     }
+    if (name == "and") {
+      return evalAnd(node, env);
+    }
+    if (name == "or") {
+      return evalOr(node, env);
+    }
   }
 
   Value callee = eval(head, env);
@@ -263,6 +269,27 @@ Value VM::evalFor(const AstPtr& node, const std::shared_ptr<Env>& env) {
     results.push_back(result);
   }
   return Value::vectorValue(std::move(results));
+}
+
+Value VM::evalAnd(const AstPtr& node, const std::shared_ptr<Env>& env) {
+  Value result = Value::booleanValue(true);
+  for (std::size_t i = 1; i < node->children.size(); ++i) {
+    result = eval(node->children[i], env);
+    if (!isTruthy(result)) {
+      return result;
+    }
+  }
+  return result;
+}
+
+Value VM::evalOr(const AstPtr& node, const std::shared_ptr<Env>& env) {
+  for (std::size_t i = 1; i < node->children.size(); ++i) {
+    Value result = eval(node->children[i], env);
+    if (isTruthy(result)) {
+      return result;
+    }
+  }
+  return Value::nil();
 }
 
 Value VM::call(Value callee, const std::vector<Value>& args) {
