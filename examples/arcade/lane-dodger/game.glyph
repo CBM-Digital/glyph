@@ -1,7 +1,7 @@
 (game lane-dodger
   :title "Lane Dodger"
   :size [480 360]
-  :assets {:car "../assets/lane-cars.png"
+  :assets {:car "../assets/kenney/strips/tank-kit.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
@@ -20,11 +20,11 @@
 
 (defn lane-frame [n]
   (case (mod n 5)
-    0 :block
-    1 :player
-    2 :obstacle
-    3 :target
-    else :marker))
+    0 :f1
+    1 :f3
+    2 :f6
+    3 :f7
+    else :f5))
 
 (defn update [dt state]
   (cond
@@ -53,14 +53,14 @@
 
 (defn view [state]
   (group
-    (clear (if (> (:flash state) 0) "#3a1720" "#121722"))
+    (clear (if (> (:flash state) 0) "#3a1720" "#172017"))
     (back-button)
     (text :font :main :value "Lane Dodger" :x 146 :y 28 :size 28 :color "#f8fafc")
     (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#fde68a")
-    (rect :x 116 :y 92 :w 248 :h 238 :color "#1f2937")
-    (line :x1 198 :y1 92 :x2 198 :y2 330 :width 2 :color "#374151")
-    (line :x1 290 :y1 92 :x2 290 :y2 330 :width 2 :color "#374151")
+    (rect :x 116 :y 92 :w 248 :h 238 :color "#293927")
+    (line :x1 198 :y1 92 :x2 198 :y2 330 :width 2 :color "#66785f")
+    (line :x1 290 :y1 92 :x2 290 :y2 330 :width 2 :color "#66785f")
     (sprite :image :car :frame (lane-frame (:enemy-lane state)) :x (lane-x (:enemy-lane state)) :y (:enemy-y state) :scale 2.4)
     (transform :x (lane-x (:lane state)) :y 276 :rotation (* 3 (sin (* (:t state) 14)))
-      (sprite :image :car :frame :player :x 0 :y 0 :scale 2.4))
+      (sprite :image :car :frame :f0 :x 0 :y 0 :scale 2.4))
     (text :font :main :value "Use left/right or A/D" :x 146 :y 332 :size 18 :color "#dbeafe")))

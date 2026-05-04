@@ -809,6 +809,16 @@ int frameIndex(const StringInterner& interner, StringId frame) {
     return 0;
   }
   const auto name = interner.resolve(frame);
+  if (name.size() > 2 && name[0] == ':' && name[1] == 'f') {
+    int index = 0;
+    for (std::size_t i = 2; i < name.size(); ++i) {
+      if (!std::isdigit(static_cast<unsigned char>(name[i]))) {
+        return static_cast<int>(frame % 4);
+      }
+      index = index * 10 + (name[i] - '0');
+    }
+    return index;
+  }
   if (name == ":block") {
     return 0;
   }

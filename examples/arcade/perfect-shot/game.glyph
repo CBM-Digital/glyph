@@ -1,7 +1,7 @@
 (game perfect-shot
   :title "Perfect Shot"
   :size [480 360]
-  :assets {:orb "../assets/perfect-shot.png"
+  :assets {:orb "../assets/kenney/strips/puzzle-kit.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
@@ -38,11 +38,11 @@
 
 (defn orb-frame [score]
   (case (mod score 5)
-    0 :block
-    1 :player
-    2 :obstacle
-    3 :target
-    else :marker))
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f4
+    else :f6))
 
 (defn back-button []
   (group
@@ -56,13 +56,13 @@
         target (:target state)
         pulse (+ 1 (* (:flash state) 0.4))]
     (group
-      (clear "#111827")
+      (clear "#171720")
       (back-button)
       (text :font :main :value "Perfect Shot" :x 142 :y 28 :size 28 :color "#f8fafc")
       (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#a7f3d0")
-      (circle :x cx :y cy :r 82 :color "#1f2937")
-      (line :from [cx cy] :angle target :length 92 :width 3 :color "#80ed99")
-      (line :from [cx cy] :angle angle :length 96 :width 3 :color "#69d2ff")
+      (circle :x cx :y cy :r 82 :color "#2b2b3a")
+      (line :from [cx cy] :angle target :length 92 :width 3 :color "#facc15")
+      (line :from [cx cy] :angle angle :length 96 :width 3 :color "#72ddf7")
       (transform :x (- cx 32) :y (- cy 32) :rotation (* (:t state) 120) :scale pulse
         (sprite :image :orb :frame (orb-frame (:score state)) :x 0 :y 0 :scale 2))
       (text :font :main :value "Tap when blue meets green" :x 132 :y 314 :size 18 :color "#dbeafe"))))

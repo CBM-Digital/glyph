@@ -1,7 +1,7 @@
 (game stack-tower
   :title "Stack Tower"
   :size [480 360]
-  :assets {:block "../assets/tower-blocks.png"
+  :assets {:block "../assets/kenney/strips/tiny-town-kit.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
@@ -16,12 +16,15 @@
        (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
 
 (defn frame-for [n]
-  (case (mod n 5)
-    0 :block
-    1 :player
-    2 :obstacle
-    3 :target
-    else :marker))
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
 
 (defn block-node [i item]
   (sprite :image :block
@@ -55,11 +58,11 @@
 
 (defn view [state]
   (group
-    (clear "#101820")
+    (clear "#15232e")
     (back-button)
     (text :font :main :value "Stack Tower" :x 150 :y 28 :size 28 :color "#f8fafc")
     (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#a7f3d0")
-    (rect :x 56 :y 326 :w 368 :h 10 :color "#4b5563")
+    (rect :x 56 :y 326 :w 368 :h 10 :color "#26394a")
     (for [i (range (count (:settled state)))]
       (block-node i (nth (:settled state) i)))
     (transform :x (:x state) :y 88 :rotation (* 4 (sin (* (:t state) 8)))

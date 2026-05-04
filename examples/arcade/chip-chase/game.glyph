@@ -1,0 +1,94 @@
+(game chip-chase
+  :title "Chip Chase"
+  :size [480 360]
+  :assets {:kit "../assets/kenney/strips/boardgame-kit.png"
+           :sheet "../assets/kenney/sheets/boardgame-chips.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :x 216 :drop-x 144 :drop-y -58 :bad-x 316 :bad-y -190 :score 0 :flash 0})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 78 32))))
+
+(defn reset-good [state]
+  (assoc state :drop-x (rand-range 58 374) :drop-y -54))
+
+(defn reset-bad [state]
+  (assoc state :bad-x (rand-range 58 374) :bad-y (rand-range -230 -72)))
+
+(defn player-box [state]
+  (rect-box (:x state) 278 58 58))
+
+(defn good-box [state]
+  (rect-box (:drop-x state) (:drop-y state) 44 44))
+
+(defn bad-box [state]
+  (rect-box (:bad-x state) (:bad-y state) 44 44))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    else
+      (let [speed (+ 122 (* (:score state) 4))
+            x (clamp (+ (:x state) (* (axis :move-x) dt 245)) 34 388)
+            drop-y (+ (:drop-y state) (* dt speed))
+            bad-y (+ (:bad-y state) (* dt (+ 104 (* (:score state) 3))))
+            moved (assoc state :t (+ (:t state) dt) :x x :drop-y drop-y :bad-y bad-y :flash (max 0 (- (:flash state) (* dt 3))))
+            caught (overlap? (player-box moved) (good-box moved))
+            clipped (overlap? (player-box moved) (bad-box moved))]
+        (cond
+          caught (do
+                   (sound/play :blip :volume 0.72)
+                   (reset-good (assoc moved :score (+ (:score moved) 1) :flash 1)))
+          clipped (do
+                    (sound/play :pop :volume 0.75)
+                    (reset-bad (assoc moved :score (max 0 (- (:score moved) 2)) :flash 1)))
+          (> drop-y 370) (reset-good moved)
+          (> bad-y 370) (reset-bad moved)
+          else moved))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 78 :h 32 :color "#2b2142")
+    (text :font :main :value "Back" :x 29 :y 19 :size 15 :color "#f6f1ff")))
+
+(defn rail [x]
+  (rect :x x :y 92 :w 3 :h 214 :color "#2b2142"))
+
+(defn view [state]
+  (let [pulse (+ 1 (* (:flash state) 0.18))
+        wiggle (* 4 (sin (* (:t state) 8)))]
+    (group
+      (clear "#171122")
+      (sprite :image :sheet :x 312 :y 78 :scale 0.38)
+      (rect :x 0 :y 0 :w 480 :h 70 :color "#2b2142")
+      (back-button)
+      (text :font :main :value "Chip Chase" :x 116 :y 20 :size 25 :color "#f6f1ff")
+      (text :font :main :value (str "Score " (:score state)) :x 350 :y 25 :size 17 :color "#f8d66d")
+      (text :font :main :value "Sweep up the high cards" :x 118 :y 48 :size 13 :color "#f8d66d")
+      (rail 96)
+      (rail 238)
+      (rail 380)
+      (circle :x 240 :y 306 :r 38 :color "#2b2142")
+      (sprite :image :kit :frame (frame 4) :x (:drop-x state) :y (:drop-y state) :scale 1)
+      (sprite :image :kit :frame (frame 3) :x (:bad-x state) :y (:bad-y state) :scale 1)
+      (transform :x (:x state) :y 278 :rotation wiggle :scale pulse
+        (sprite :image :kit :frame (frame 0) :x 0 :y 0 :scale 1.18))
+      (text :font :main :value "A/D or arrows" :x 190 :y 334 :size 15 :color "#f8d66d"))))
