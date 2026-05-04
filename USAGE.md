@@ -1,12 +1,41 @@
-# Glyph Usage
+# Glyph Usage (Unix/macOS)
 
-Glyph can run games either headlessly or in the SDL desktop target. The desktop target opens a window, maps keyboard/mouse input to Glyph actions, renders draw commands with SDL2, loads PPM/BMP sprite assets, renders text with a built-in bitmap font, and plays WAV or procedural `.tone` audio assets.
+Glyph currently targets Unix-like development environments, with macOS as the first-class desktop path. The desktop target uses SDL2 to open a window, process keyboard/mouse input, render draw commands, load simple sprite/audio assets, and play sound.
+
+## Prerequisites
+
+macOS with Homebrew:
+
+```bash
+brew install cmake sdl2
+```
+
+Debian/Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install cmake build-essential pkg-config libsdl2-dev
+```
+
+Fedora:
+
+```bash
+sudo dnf install cmake gcc-c++ pkgconf-pkg-config SDL2-devel
+```
 
 ## Build
+
+From the repository root:
 
 ```bash
 cmake -S . -B build
 cmake --build build
+```
+
+The main executable is:
+
+```bash
+build/glyph
 ```
 
 ## Run Tests
@@ -15,15 +44,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Evaluate A Glyph Expression
-
-```bash
-printf '%s\n' '(+ 1 2 3)' | build/glyph
-```
-
-## Run A Game
-
-### Desktop Window
+## Run A Game In A Window
 
 ```bash
 build/glyph --desktop examples/moving-rect/game.glyph
@@ -41,31 +62,48 @@ cancel: Escape
 pointer: mouse position and button
 ```
 
-For automated smoke checks, pass `--frames` to close after a fixed number of rendered frames:
+For smoke tests, `--frames` closes the SDL window after a fixed number of rendered frames:
 
 ```bash
 build/glyph --desktop examples/sprite-audio/game.glyph --frames 180
 ```
 
-### Headless Summary
+## Example Games
 
-Use `--run` with a game file. `--frames` controls how many fixed `1/60` update steps to execute before printing the final state, compiled draw commands, loaded asset count, and queued audio commands.
+Moving rectangle:
 
 ```bash
-build/glyph --run examples/moving-rect/game.glyph --frames 60
+build/glyph --desktop examples/moving-rect/game.glyph
 ```
 
-Expected output includes a state near `{:x 100}` and two draw commands: `clear` and `rect`.
-
-## Run The Asset And Audio Example In A Window
+Sprite and audio:
 
 ```bash
 build/glyph --desktop examples/sprite-audio/game.glyph
 ```
 
-This loads `assets/hero.ppm`, renders it as a sprite, draws bitmap text, and plays the procedural tone assets declared in the manifest.
+Perfect Shot headless sample in a window:
 
-## Run The Asset And Audio Example Headlessly
+```bash
+build/glyph --desktop examples/perfect-shot-headless/game.glyph
+```
+
+## Headless Mode
+
+Use `--run` when you want a deterministic command-line summary instead of a window. `--frames` controls how many fixed `1/60` update steps execute.
+
+```bash
+build/glyph --run examples/moving-rect/game.glyph --frames 60
+```
+
+Expected output includes:
+
+```text
+state: {:x 100}
+draw-commands: 2
+```
+
+Asset/audio example:
 
 ```bash
 build/glyph --run examples/sprite-audio/game.glyph --frames 1
@@ -79,20 +117,55 @@ draw-commands: 3
 audio-commands: 2
 ```
 
-## Run The Perfect Shot Headless Example
+## Evaluate A Glyph Expression
 
 ```bash
-build/glyph --run examples/perfect-shot-headless/game.glyph --frames 30
+printf '%s\n' '(+ 1 2 3)' | build/glyph
 ```
 
-This compiles a simple render tree using `clear`, `circle`, `line`, and `text`.
+## Asset Support
 
-It also runs in the SDL desktop target:
+The current SDL desktop runtime supports:
+
+```text
+sprites: PPM (P3) and BMP
+text: built-in bitmap font
+audio: WAV and procedural .tone/.music files
+```
+
+The example `.tone` files are plain text:
+
+```text
+frequency seconds volume
+```
+
+Example:
+
+```text
+720 0.16 0.35
+```
+
+## Troubleshooting
+
+If CMake cannot find SDL2 on macOS, confirm `pkg-config` sees Homebrew SDL2:
 
 ```bash
-build/glyph --desktop examples/perfect-shot-headless/game.glyph
+pkg-config --modversion sdl2
 ```
 
-## Current Runtime Limits
+If that fails:
 
-The SDL desktop target is intentionally small. It supports real windows, shape rendering, PPM/BMP sprites, built-in bitmap text, WAV and `.tone` audio, and keyboard/mouse input. It does not yet support SDL_image formats such as PNG/JPEG, SDL_ttf font rendering, streamed music, hot reload, or packed release bundles.
+```bash
+brew reinstall sdl2 pkg-config
+```
+
+For CI or SSH sessions without a display, use SDL dummy drivers and a frame limit:
+
+```bash
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+  build/glyph --desktop examples/sprite-audio/game.glyph --frames 3
+```
+
+## Current Limits
+
+The SDL target is intentionally small. It does not yet support PNG/JPEG via SDL_image, TTF rendering via SDL_ttf, streamed music via SDL_mixer, hot reload, or packaged release bundles.
