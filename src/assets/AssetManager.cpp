@@ -88,16 +88,16 @@ const AssetInfo* AssetManager::info(StringId name) const {
 const std::vector<AssetInfo>& AssetManager::assets() const { return assets_; }
 
 AssetType AssetManager::inferType(const std::string& path) {
-  if (hasExtension(path, {"png", "jpg", "jpeg", "bmp", "gif", "webp"})) {
+  if (hasExtension(path, {"png", "jpg", "jpeg", "bmp", "gif", "webp", "ppm"})) {
     return AssetType::Texture;
   }
-  if (hasExtension(path, {"ttf", "otf"})) {
+  if (hasExtension(path, {"ttf", "otf", "font"})) {
     return AssetType::Font;
   }
-  if (hasExtension(path, {"wav", "flac"})) {
+  if (hasExtension(path, {"wav", "flac", "tone"})) {
     return AssetType::Sound;
   }
-  if (hasExtension(path, {"mp3", "ogg", "oga", "xm", "mod"})) {
+  if (hasExtension(path, {"mp3", "ogg", "oga", "xm", "mod", "music"})) {
     return AssetType::Music;
   }
   if (hasExtension(path, {"glyph"})) {

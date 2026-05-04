@@ -2,10 +2,10 @@
   :title "Sprite Audio"
   :size [360 640]
   :assets
-  {:hero "assets/hero.png"
-   :main "assets/main.ttf"
-   :hit "assets/hit.wav"
-   :theme "assets/theme.ogg"}
+  {:hero "assets/hero.ppm"
+   :main "assets/main.font"
+   :hit "assets/hit.tone"
+   :theme "assets/theme.music"}
   :initial initial
   :update update
   :view view)

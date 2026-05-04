@@ -56,6 +56,8 @@ float InputSystem::axis(StringId action) const {
 
 Vec2 InputSystem::pointerPosition() const { return pointer_.position; }
 
+Vec2 InputSystem::pointerStartPosition() const { return pointer_.startPosition; }
+
 bool InputSystem::pointerPressed() const { return pointer_.pressed; }
 
 bool InputSystem::pointerHeld() const { return pointer_.down; }

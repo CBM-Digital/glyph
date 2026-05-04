@@ -45,6 +45,7 @@ public:
   float axis(StringId action) const;
 
   Vec2 pointerPosition() const;
+  Vec2 pointerStartPosition() const;
   bool pointerPressed() const;
   bool pointerHeld() const;
   bool pointerReleased() const;

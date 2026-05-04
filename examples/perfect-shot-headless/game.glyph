@@ -2,8 +2,8 @@
   :title "Perfect Shot Headless"
   :size [360 640]
   :assets
-  {:hit "assets/hit.wav"
-   :main "assets/main.ttf"}
+  {:hit "assets/hit.tone"
+   :main "assets/main.font"}
   :initial initial
   :update update
   :view view)

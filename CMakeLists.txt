@@ -6,6 +6,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(SDL2 QUIET sdl2)
+endif()
+
 add_library(glyph_script
   src/core/StringInterner.cpp
   src/script/Lexer.cpp
@@ -32,6 +37,17 @@ endif()
 
 add_executable(glyph src/app/Main.cpp)
 target_link_libraries(glyph PRIVATE glyph_script)
+
+if(SDL2_FOUND)
+  target_sources(glyph PRIVATE src/platform/SDLDesktopApp.cpp)
+  target_compile_definitions(glyph PRIVATE GLYPH_HAS_SDL=1)
+  target_include_directories(glyph PRIVATE ${SDL2_INCLUDE_DIRS})
+  target_link_directories(glyph PRIVATE ${SDL2_LIBRARY_DIRS})
+  target_link_libraries(glyph PRIVATE ${SDL2_LIBRARIES})
+  target_compile_options(glyph PRIVATE ${SDL2_CFLAGS_OTHER})
+else()
+  target_compile_definitions(glyph PRIVATE GLYPH_HAS_SDL=0)
+endif()
 
 add_executable(glyph_script_tests
   tests/script/ScriptCoreTests.cpp
