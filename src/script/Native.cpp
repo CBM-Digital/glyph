@@ -567,6 +567,73 @@ Value nativePointInCircle(VM& vm, const std::vector<Value>& args) {
   return Value::booleanValue(dx * dx + dy * dy <= r * r);
 }
 
+Value renderNode(VM& vm, std::string_view type) {
+  std::map<StringId, Value> entries;
+  entries[vm.interner().intern(":node")] = Value::keywordValue(vm.interner().intern(type));
+  return Value::mapValue(std::move(entries));
+}
+
+std::map<StringId, Value> renderOptionMap(VM& vm, std::string_view type,
+                                           const std::vector<Value>& args, std::size_t start,
+                                           std::size_t end) {
+  if ((end - start) % 2 != 0) {
+    throw RuntimeError("render function expects keyword/value option pairs");
+  }
+
+  std::map<StringId, Value> entries;
+  entries[vm.interner().intern(":node")] = Value::keywordValue(vm.interner().intern(type));
+  for (std::size_t i = start; i < end; i += 2) {
+    entries[keywordArg(args[i])] = args[i + 1];
+  }
+  return entries;
+}
+
+Value nativeClear(VM& vm, const std::vector<Value>& args) {
+  auto entries = renderOptionMap(vm, ":clear", {}, 0, 0);
+  entries[vm.interner().intern(":color")] = args[0];
+  return Value::mapValue(std::move(entries));
+}
+
+Value nativeRenderOptionsOnly(VM& vm, const std::vector<Value>& args, std::string_view type) {
+  return Value::mapValue(renderOptionMap(vm, type, args, 0, args.size()));
+}
+
+Value nativeGroup(VM& vm, const std::vector<Value>& args) {
+  auto entries = renderOptionMap(vm, ":group", {}, 0, 0);
+  entries[vm.interner().intern(":children")] = Value::vectorValue(args);
+  return Value::mapValue(std::move(entries));
+}
+
+Value nativeLayer(VM& vm, const std::vector<Value>& args) {
+  std::size_t childStart = 0;
+  auto entries = renderOptionMap(vm, ":layer", {}, 0, 0);
+  if (args.size() >= 2 && args[0].kind == ValueKind::Keyword) {
+    entries[keywordArg(args[0])] = args[1];
+    childStart = 2;
+  }
+  std::vector<Value> children(args.begin() + static_cast<std::ptrdiff_t>(childStart), args.end());
+  entries[vm.interner().intern(":children")] = Value::vectorValue(std::move(children));
+  return Value::mapValue(std::move(entries));
+}
+
+Value nativeParentRenderNode(VM& vm, const std::vector<Value>& args, std::string_view type) {
+  std::size_t childStart = 0;
+  while (childStart < args.size()) {
+    if (args[childStart].kind != ValueKind::Keyword) {
+      break;
+    }
+    if (childStart + 1 >= args.size()) {
+      throw RuntimeError("render parent option is missing a value");
+    }
+    childStart += 2;
+  }
+
+  auto entries = renderOptionMap(vm, type, args, 0, childStart);
+  std::vector<Value> children(args.begin() + static_cast<std::ptrdiff_t>(childStart), args.end());
+  entries[vm.interner().intern(":children")] = Value::vectorValue(std::move(children));
+  return Value::mapValue(std::move(entries));
+}
+
 void define(VM& vm, std::string_view name, NativeFn fn, int minArgs = 0, int maxArgs = -1) {
   vm.defineGlobal(name, Value::nativeValue(vm.interner().intern(name), std::move(fn), minArgs, maxArgs));
 }
@@ -707,6 +774,32 @@ void registerCoreNatives(VM& vm) {
   define(vm, "circle-box", nativeCircleBox, 3, 3);
   define(vm, "circle-overlap?", nativeCircleOverlap, 2, 2);
   define(vm, "point-in-circle?", nativePointInCircle, 3, 3);
+
+  vm.defineGlobal("empty", renderNode(vm, ":empty"));
+  define(vm, "clear", nativeClear, 1, 1);
+  define(vm, "group", nativeGroup, 0, -1);
+  define(vm, "layer", nativeLayer, 0, -1);
+  define(vm, "rect", [](VM& vm, const std::vector<Value>& args) {
+    return nativeRenderOptionsOnly(vm, args, ":rect");
+  }, 0, -1);
+  define(vm, "circle", [](VM& vm, const std::vector<Value>& args) {
+    return nativeRenderOptionsOnly(vm, args, ":circle");
+  }, 0, -1);
+  define(vm, "line", [](VM& vm, const std::vector<Value>& args) {
+    return nativeRenderOptionsOnly(vm, args, ":line");
+  }, 0, -1);
+  define(vm, "sprite", [](VM& vm, const std::vector<Value>& args) {
+    return nativeRenderOptionsOnly(vm, args, ":sprite");
+  }, 0, -1);
+  define(vm, "text", [](VM& vm, const std::vector<Value>& args) {
+    return nativeRenderOptionsOnly(vm, args, ":text");
+  }, 0, -1);
+  define(vm, "camera", [](VM& vm, const std::vector<Value>& args) {
+    return nativeParentRenderNode(vm, args, ":camera");
+  }, 0, -1);
+  define(vm, "transform", [](VM& vm, const std::vector<Value>& args) {
+    return nativeParentRenderNode(vm, args, ":transform");
+  }, 0, -1);
 }
 
 } // namespace glyph::script

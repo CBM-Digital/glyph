@@ -14,6 +14,8 @@ add_library(glyph_script
   src/script/Env.cpp
   src/script/Native.cpp
   src/script/VM.cpp
+  src/render/RenderCompiler.cpp
+  src/render/Renderer.cpp
 )
 
 target_include_directories(glyph_script PUBLIC src)
@@ -32,5 +34,11 @@ add_executable(glyph_script_tests
 )
 target_link_libraries(glyph_script_tests PRIVATE glyph_script)
 
+add_executable(glyph_render_tests
+  tests/render/RenderCompilerTests.cpp
+)
+target_link_libraries(glyph_render_tests PRIVATE glyph_script)
+
 enable_testing()
 add_test(NAME glyph_script_tests COMMAND glyph_script_tests)
+add_test(NAME glyph_render_tests COMMAND glyph_render_tests)
