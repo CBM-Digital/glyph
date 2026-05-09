@@ -1,0 +1,643 @@
+(game circuit-keep
+  :title "Circuit Keep"
+  :size [480 360]
+  :assets {:kit "../assets/kenney/strips/tower-defense-kit.png"
+           :sheet "../assets/kenney/sheets/tower-defense.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"
+           :theme "../assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def path-end 650)
+(def enemy-keys [:e0 :e1 :e2 :e3 :e4 :e5 :e6 :e7])
+(def slot-keys [:s0 :s1 :s2 :s3 :s4 :s5])
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn blank-enemy []
+  {:alive false :p 0 :hp 0 :max 0 :speed 0 :kind :grunt :slow 0})
+
+(defn blank-tower []
+  {:type :none :level 0 :cool 0})
+
+(def initial
+  {:t 0
+   :phase :prep
+   :wave 0
+   :wave-size 0
+   :spawned 0
+   :spawn 0
+   :gold 130
+   :lives 20
+   :score 0
+   :selected :bolt
+   :message 0
+   :music false
+   :shots []
+   :enemies {:e0 (blank-enemy)
+             :e1 (blank-enemy)
+             :e2 (blank-enemy)
+             :e3 (blank-enemy)
+             :e4 (blank-enemy)
+             :e5 (blank-enemy)
+             :e6 (blank-enemy)
+             :e7 (blank-enemy)}
+   :towers {:s0 (blank-tower)
+            :s1 (blank-tower)
+            :s2 (blank-tower)
+            :s3 (blank-tower)
+            :s4 (blank-tower)
+            :s5 (blank-tower)}})
+
+(defn path-x [p]
+  (cond
+    (< p 94) (- p 20)
+    (< p 190) 74
+    (< p 312) (+ 74 (- p 190))
+    (< p 414) 196
+    (< p 548) (+ 196 (- p 414))
+    else 330))
+
+(defn path-y [p]
+  (cond
+    (< p 94) 96
+    (< p 190) (+ 96 (- p 94))
+    (< p 312) 192
+    (< p 414) (- 192 (- p 312))
+    (< p 548) 90
+    else (+ 90 (- p 548))))
+
+(defn slot-x [s]
+  (case s
+    :s0 24
+    :s1 118
+    :s2 118
+    :s3 236
+    :s4 282
+    else 282))
+
+(defn slot-y [s]
+  (case s
+    :s0 134
+    :s1 44
+    :s2 226
+    :s3 134
+    :s4 34
+    else 232))
+
+(defn slot-cx [s] (+ (slot-x s) 24))
+(defn slot-cy [s] (+ (slot-y s) 24))
+
+(defn tower-cost [kind]
+  (case kind
+    :bolt 45
+    :cannon 75
+    else 60))
+
+(defn tower-range [tower]
+  (let [level (:level tower)
+        kind (:type tower)]
+    (+ (case kind
+         :bolt 92
+         :cannon 76
+         :frost 84
+         else 0)
+       (* level 7))))
+
+(defn tower-damage [tower]
+  (let [level (:level tower)]
+    (* level
+       (case (:type tower)
+         :bolt 14
+         :cannon 34
+         :frost 7
+         else 0))))
+
+(defn tower-rate [tower]
+  (case (:type tower)
+    :bolt 0.52
+    :cannon 1.12
+    :frost 0.38
+    else 1))
+
+(defn tower-name [kind]
+  (case kind
+    :bolt "Bolt"
+    :cannon "Cannon"
+    :frost "Frost"
+    else "Empty"))
+
+(defn tower-color [kind]
+  (case kind
+    :bolt "#f5c542"
+    :cannon "#f87171"
+    :frost "#67e8f9"
+    else "#496052"))
+
+(defn tower-frame [kind]
+  (case kind
+    :bolt (frame 0)
+    :cannon (frame 3)
+    :frost (frame 5)
+    else (frame 7)))
+
+(defn enemy-kind [n]
+  (cond
+    (= (mod n 6) 5) :brute
+    (= (mod n 4) 3) :runner
+    else :grunt))
+
+(defn enemy-hp [kind wave]
+  (case kind
+    :brute (+ 78 (* wave 15))
+    :runner (+ 30 (* wave 7))
+    else (+ 44 (* wave 10))))
+
+(defn enemy-speed [kind wave]
+  (+ (case kind
+       :brute 32
+       :runner 70
+       else 47)
+     (* wave 2)))
+
+(defn enemy-reward [kind]
+  (case kind
+    :brute 22
+    :runner 14
+    else 11))
+
+(defn enemy-color [kind]
+  (case kind
+    :brute "#fb7185"
+    :runner "#facc15"
+    else "#c084fc"))
+
+(defn enemy-frame [kind]
+  (case kind
+    :brute (frame 6)
+    :runner (frame 2)
+    else (frame 1)))
+
+(defn make-enemy [kind wave]
+  (let [hp (enemy-hp kind wave)]
+    {:alive true
+     :p 0
+     :hp hp
+     :max hp
+     :speed (enemy-speed kind wave)
+     :kind kind
+     :slow 0}))
+
+(defn button-hit? [x y w h]
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box x y w h))))
+
+(defn back? [] (button-hit? 12 12 68 30))
+(defn start? [] (button-hit? 370 270 94 30))
+(defn retry? [] (button-hit? 370 306 94 30))
+
+(defn select-button []
+  (cond
+    (button-hit? 370 88 94 30) :bolt
+    (button-hit? 370 126 94 30) :cannon
+    (button-hit? 370 164 94 30) :frost
+    else nil))
+
+(defn slot-hit? [s]
+  (point-in-circle? (pointer-x) (pointer-y) (circle-box (slot-cx s) (slot-cy s) 28)))
+
+(defn clicked-slot []
+  (if (pointer-released?)
+    (find slot-keys (fn [s] (slot-hit? s)))
+    nil))
+
+(defn upgrade-cost [tower]
+  (+ 42 (* (:level tower) 34)))
+
+(defn can-build? [state kind]
+  (>= (:gold state) (tower-cost kind)))
+
+(defn build-or-upgrade [state s]
+  (let [tower (get-in state [:towers s])
+        selected (:selected state)]
+    (cond
+      (= (:type tower) :none)
+        (if (can-build? state selected)
+          (do
+            (sound/play :blip :volume 0.72)
+            (assoc-in
+              (assoc state :gold (- (:gold state) (tower-cost selected)) :message 1.2)
+              [:towers s]
+              {:type selected :level 1 :cool 0}))
+          (do
+            (sound/play :pop :volume 0.5)
+            (assoc state :message 1.1)))
+      (< (:level tower) 3)
+        (let [cost (upgrade-cost tower)]
+          (if (>= (:gold state) cost)
+            (do
+              (sound/play :blip :volume 0.65)
+              (assoc-in
+                (assoc state :gold (- (:gold state) cost) :message 1.2)
+                [:towers s]
+                (assoc tower :level (+ (:level tower) 1))))
+            (do
+              (sound/play :pop :volume 0.5)
+              (assoc state :message 1.1))))
+      else
+        (assoc state :message 1.1))))
+
+(defn start-wave [state]
+  (if (= (:phase state) :playing)
+    state
+    (do
+      (sound/play :blip :volume 0.78)
+      (let [next-wave (+ (:wave state) 1)]
+        (assoc state
+          :phase :playing
+          :wave next-wave
+          :wave-size (+ 7 (* next-wave 2))
+          :spawned 0
+          :spawn 0
+          :message 1.4)))))
+
+(defn fresh-state []
+  initial)
+
+(defn handle-clicks [state]
+  (let [picked (select-button)
+        slot (clicked-slot)]
+    (cond
+      picked (assoc state :selected picked :message 0.9)
+      (and (start?) (not= (:phase state) :gameover)) (start-wave state)
+      (retry?) (fresh-state)
+      slot (build-or-upgrade state slot)
+      else state)))
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.08)
+      (assoc state :music true))))
+
+(defn enemy [state e]
+  (get-in state [:enemies e]))
+
+(defn enemy-alive? [state e]
+  (and (:alive (enemy state e))
+       (> (:hp (enemy state e)) 0)))
+
+(defn inactive-enemy? [state e]
+  (not (enemy-alive? state e)))
+
+(defn spawn-delay [wave]
+  (max 0.36 (- 0.88 (* wave 0.045))))
+
+(defn spawn-one [state]
+  (let [slot (find enemy-keys (fn [e] (inactive-enemy? state e)))]
+    (if slot
+      (let [kind (enemy-kind (:spawned state))]
+        (assoc-in
+          (assoc state
+            :spawned (+ (:spawned state) 1)
+            :spawn (spawn-delay (:wave state)))
+          [:enemies slot]
+          (make-enemy kind (:wave state))))
+      state)))
+
+(defn update-spawn [dt state]
+  (if (and (= (:phase state) :playing)
+           (< (:spawned state) (:wave-size state)))
+    (if (<= (:spawn state) 0)
+      (spawn-one state)
+      (assoc state :spawn (- (:spawn state) dt)))
+    state))
+
+(defn advance-enemy [state e dt]
+  (let [unit (enemy state e)]
+    (if (:alive unit)
+      (let [slow-left (max 0 (- (:slow unit) dt))
+            slow-scale (if (> slow-left 0) 0.52 1)
+            p (+ (:p unit) (* (:speed unit) slow-scale dt))]
+        (if (>= p path-end)
+          (do
+            (sound/play :pop :volume 0.55)
+            (assoc-in
+              (assoc state :lives (- (:lives state) 1) :message 1.0)
+              [:enemies e :alive]
+              false))
+          (assoc-in
+            (assoc-in state [:enemies e :p] p)
+            [:enemies e :slow]
+            slow-left)))
+      state)))
+
+(defn advance-all [state dt]
+  (advance-enemy
+    (advance-enemy
+      (advance-enemy
+        (advance-enemy
+          (advance-enemy
+            (advance-enemy
+              (advance-enemy
+                (advance-enemy state :e0 dt)
+                :e1 dt)
+              :e2 dt)
+            :e3 dt)
+          :e4 dt)
+        :e5 dt)
+      :e6 dt)
+    :e7 dt))
+
+(defn cool-tower [state s dt]
+  (let [tower (get-in state [:towers s])]
+    (assoc-in state [:towers s :cool] (max 0 (- (:cool tower) dt)))))
+
+(defn cool-all [state dt]
+  (cool-tower
+    (cool-tower
+      (cool-tower
+        (cool-tower
+          (cool-tower
+            (cool-tower state :s0 dt)
+            :s1 dt)
+          :s2 dt)
+        :s3 dt)
+      :s4 dt)
+    :s5 dt))
+
+(defn enemy-x [state e]
+  (path-x (:p (enemy state e))))
+
+(defn enemy-y [state e]
+  (path-y (:p (enemy state e))))
+
+(defn in-range? [state s e]
+  (let [tower (get-in state [:towers s])
+        ex (enemy-x state e)
+        ey (enemy-y state e)]
+    (and (enemy-alive? state e)
+         (not= (:type tower) :none)
+         (< (dist (slot-cx s) (slot-cy s) ex ey) (tower-range tower)))))
+
+(defn find-target [state s]
+  (find enemy-keys (fn [e] (in-range? state s e))))
+
+(defn shot-color [kind]
+  (case kind
+    :bolt "#fde68a"
+    :cannon "#fecaca"
+    :frost "#a5f3fc"
+    else "#ffffff"))
+
+(defn add-shot [state s e kind]
+  (assoc state :shots
+    (push (:shots state)
+      {:fx (slot-cx s)
+       :fy (slot-cy s)
+       :tx (enemy-x state e)
+       :ty (enemy-y state e)
+       :kind kind
+       :life 0.16})))
+
+(defn damage-enemy [state e dmg slow]
+  (let [unit (enemy state e)
+        hp (- (:hp unit) dmg)
+        kind (:kind unit)
+        dead (<= hp 0)
+        slowed (max (:slow unit) slow)]
+    (if dead
+      (do
+        (sound/play :blip :volume 0.5)
+        (assoc-in
+          (assoc state
+            :gold (+ (:gold state) (enemy-reward kind))
+            :score (+ (:score state) (enemy-reward kind)))
+          [:enemies e :alive]
+          false))
+      (assoc-in
+        (assoc-in state [:enemies e :hp] hp)
+        [:enemies e :slow]
+        slowed))))
+
+(defn fire-tower [state s]
+  (let [tower (get-in state [:towers s])
+        target (find-target state s)]
+    (if (and target
+             (= (:phase state) :playing)
+             (<= (:cool tower) 0)
+             (not= (:type tower) :none))
+      (let [kind (:type tower)
+            dmg (tower-damage tower)
+            slow (if (= kind :frost) 1.15 0)
+            fired (add-shot state s target kind)
+            damaged (damage-enemy fired target dmg slow)]
+        (assoc-in damaged [:towers s :cool] (tower-rate tower)))
+      state)))
+
+(defn fire-all [state]
+  (fire-tower
+    (fire-tower
+      (fire-tower
+        (fire-tower
+          (fire-tower
+            (fire-tower state :s0)
+            :s1)
+          :s2)
+        :s3)
+      :s4)
+    :s5))
+
+(defn age-shot [dt shot]
+  (assoc shot :life (- (:life shot) dt)))
+
+(defn update-shots [dt state]
+  (assoc state :shots
+    (filter
+      (map (:shots state) (fn [shot] (age-shot dt shot)))
+      (fn [shot] (> (:life shot) 0)))))
+
+(defn wave-clear? [state]
+  (and (= (:phase state) :playing)
+       (>= (:spawned state) (:wave-size state))
+       (not (any enemy-keys (fn [e] (enemy-alive? state e))))))
+
+(defn finish-wave [state]
+  (if (wave-clear? state)
+    (do
+      (sound/play :blip :volume 0.9)
+      (assoc state
+        :phase :prep
+        :gold (+ (:gold state) 38 (* (:wave state) 8))
+        :message 1.8))
+    state))
+
+(defn check-gameover [state]
+  (if (<= (:lives state) 0)
+    (do
+      (sound/play :pop :volume 0.8)
+      (assoc state :phase :gameover :lives 0 :message 1.8))
+    state))
+
+(defn play-step [dt state]
+  (check-gameover
+    (finish-wave
+      (fire-all
+        (advance-all
+          (update-spawn dt
+            (cool-all
+              (update-shots dt state)
+              dt))
+          dt)))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    else
+      (let [base (arm-music state)
+            clicked (handle-clicks base)
+            timed (assoc clicked
+                    :t (+ (:t clicked) dt)
+                    :message (max 0 (- (:message clicked) dt)))]
+        (if (= (:phase timed) :gameover)
+          timed
+          (play-step dt timed)))))
+
+(defn panel-button [x y label active color]
+  (group
+    (rect :x x :y y :w 94 :h 30 :color (if active color "#24313a"))
+    (text :font :main :value label :x (+ x 10) :y (+ y 8) :size 12 :color "#f8fafc")))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 68 :h 30 :color "#24313a")
+    (text :font :main :value "Back" :x 28 :y 20 :size 13 :color "#f8fafc")))
+
+(defn draw-path []
+  (group
+    (line :x1 -20 :y1 96 :x2 74 :y2 96 :width 28 :color "#314737")
+    (line :x1 74 :y1 96 :x2 74 :y2 192 :width 28 :color "#314737")
+    (line :x1 74 :y1 192 :x2 196 :y2 192 :width 28 :color "#314737")
+    (line :x1 196 :y1 192 :x2 196 :y2 90 :width 28 :color "#314737")
+    (line :x1 196 :y1 90 :x2 330 :y2 90 :width 28 :color "#314737")
+    (line :x1 330 :y1 90 :x2 330 :y2 192 :width 28 :color "#314737")
+    (line :x1 -20 :y1 96 :x2 74 :y2 96 :width 16 :color "#516a45")
+    (line :x1 74 :y1 96 :x2 74 :y2 192 :width 16 :color "#516a45")
+    (line :x1 74 :y1 192 :x2 196 :y2 192 :width 16 :color "#516a45")
+    (line :x1 196 :y1 192 :x2 196 :y2 90 :width 16 :color "#516a45")
+    (line :x1 196 :y1 90 :x2 330 :y2 90 :width 16 :color "#516a45")
+    (line :x1 330 :y1 90 :x2 330 :y2 192 :width 16 :color "#516a45")))
+
+(defn draw-slot [state s]
+  (let [tower (get-in state [:towers s])
+        kind (:type tower)
+        ready (<= (:cool tower) 0)]
+    (group
+      (circle :x (slot-cx s) :y (slot-cy s) :r 25 :color "#1d2a25")
+      (circle :x (slot-cx s) :y (slot-cy s) :r 19 :color (if (= kind :none) "#2f4037" (tower-color kind)))
+      (if (= kind :none)
+        (text :font :main :value "+" :x (+ (slot-x s) 17) :y (+ (slot-y s) 8) :size 24 :color "#9fb6a8")
+        (group
+          (sprite :image :kit :frame (tower-frame kind) :x (+ (slot-x s) 1) :y (+ (slot-y s) 0) :scale 0.92)
+          (rect :x (+ (slot-x s) 31) :y (+ (slot-y s) 31) :w 16 :h 14 :color "#111827")
+          (text :font :main :value (str (:level tower)) :x (+ (slot-x s) 36) :y (+ (slot-y s) 32) :size 11 :color "#f8fafc")
+          (if ready
+            (circle :x (+ (slot-x s) 8) :y (+ (slot-y s) 8) :r 4 :color "#bbf7d0")
+            empty))))))
+
+(defn hp-width [unit]
+  (clamp (* 28 (/ (:hp unit) (:max unit))) 0 28))
+
+(defn draw-enemy [state e]
+  (let [unit (enemy state e)
+        x (- (enemy-x state e) 17)
+        y (- (enemy-y state e) 17)]
+    (if (enemy-alive? state e)
+      (group
+        (circle :x (enemy-x state e) :y (enemy-y state e) :r 17 :color (enemy-color (:kind unit)))
+        (sprite :image :kit :frame (enemy-frame (:kind unit)) :x x :y y :scale 0.72)
+        (rect :x (- (enemy-x state e) 14) :y (- (enemy-y state e) 24) :w 28 :h 4 :color "#111827")
+        (rect :x (- (enemy-x state e) 14) :y (- (enemy-y state e) 24) :w (hp-width unit) :h 4 :color "#86efac")
+        (if (> (:slow unit) 0)
+          (circle :x (enemy-x state e) :y (enemy-y state e) :r 22 :color "#0e7490")
+          empty))
+      empty)))
+
+(defn draw-shot [shot]
+  (line :x1 (:fx shot) :y1 (:fy shot) :x2 (:tx shot) :y2 (:ty shot) :width 4 :color (shot-color (:kind shot))))
+
+(defn status-line [state]
+  (case (:phase state)
+    :playing (str "Wave " (:wave state) " / " (:spawned state) "-" (:wave-size state))
+    :gameover "Keep overrun"
+    else (str "Ready for wave " (+ (:wave state) 1))))
+
+(defn notice-text [state]
+  (cond
+    (= (:phase state) :gameover) "Final score"
+    (> (:message state) 0) "Build pads upgrade on click"
+    else ""))
+
+(defn draw-panel [state]
+  (group
+    (rect :x 360 :y 0 :w 120 :h 360 :color "#111827")
+    (rect :x 360 :y 0 :w 1 :h 360 :color "#334155")
+    (text :font :main :value "Circuit Keep" :x 374 :y 14 :size 16 :color "#f8fafc")
+    (text :font :main :value (status-line state) :x 374 :y 38 :size 11 :color "#cbd5e1")
+    (text :font :main :value (str "Gold " (:gold state)) :x 374 :y 58 :size 12 :color "#fde68a")
+    (text :font :main :value (str "Lives " (:lives state)) :x 374 :y 74 :size 12 :color "#fecaca")
+    (panel-button 370 88 (str "Bolt $" (tower-cost :bolt)) (= (:selected state) :bolt) "#694d16")
+    (panel-button 370 126 (str "Cannon $" (tower-cost :cannon)) (= (:selected state) :cannon) "#6f1d1b")
+    (panel-button 370 164 (str "Frost $" (tower-cost :frost)) (= (:selected state) :frost) "#155e75")
+    (rect :x 370 :y 208 :w 94 :h 44 :color "#1f2937")
+    (text :font :main :value "Score" :x 382 :y 214 :size 12 :color "#94a3b8")
+    (text :font :main :value (str (:score state)) :x 382 :y 232 :size 17 :color "#f8fafc")
+    (panel-button 370 270 (if (= (:phase state) :playing) "Wave Live" "Start Wave") false "#166534")
+    (panel-button 370 306 "Retry" false "#374151")
+    (text :font :main :value (notice-text state) :x 367 :y 342 :size 9 :color "#94a3b8")))
+
+(defn draw-base []
+  (group
+    (circle :x 330 :y 192 :r 34 :color "#1f2937")
+    (circle :x 330 :y 192 :r 24 :color "#2563eb")
+    (sprite :image :kit :frame (frame 7) :x 306 :y 168 :scale 1)))
+
+(defn draw-map [state]
+  (group
+    (clear "#0f1f18")
+    (rect :x 0 :y 0 :w 360 :h 360 :color "#102019")
+    (sprite :image :sheet :x 10 :y 294 :scale 0.22)
+    (draw-path)
+    (draw-base)
+    (for [s slot-keys] (draw-slot state s))
+    (for [shot (:shots state)] (draw-shot shot))
+    (for [e enemy-keys] (draw-enemy state e))
+    (rect :x 0 :y 0 :w 360 :h 52 :color "#13251e")
+    (back-button)
+    (text :font :main :value "Defend the loop" :x 96 :y 13 :size 18 :color "#f8fafc")
+    (text :font :main :value (str (tower-name (:selected state)) " selected") :x 98 :y 34 :size 11 :color "#a7f3d0")))
+
+(defn view [state]
+  (group
+    (draw-map state)
+    (draw-panel state)
+    (if (= (:phase state) :gameover)
+      (group
+        (rect :x 76 :y 112 :w 220 :h 112 :color "#111827")
+        (text :font :main :value "The keep fell" :x 112 :y 132 :size 24 :color "#f8fafc")
+        (text :font :main :value (str "Score " (:score state)) :x 132 :y 166 :size 18 :color "#fde68a")
+        (text :font :main :value "Retry from the command panel" :x 102 :y 196 :size 12 :color "#cbd5e1"))
+      empty)))
