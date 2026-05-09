@@ -1,0 +1,385 @@
+(game fishing-cove
+  :title "Fishing Cove"
+  :size [480 360]
+  :assets {:fish "../assets/kenney/strips/fish-kit.png"
+           :reef "../assets/kenney/sheets/fish-sheet.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"
+           :theme "../assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :music false :mode :ready :aim 230 :power 0.5 :bob-x 230 :bob-y 214
+              :wait 0 :bite 0 :fish :blue :fish-power 1 :fish-x 250 :fish-y 250
+              :tension 28 :progress 0 :reel-time 0 :coins 0 :score 0 :streak 0 :best 0
+              :rod 1 :reel 1 :bait 1 :log-blue 0 :log-gold 0 :log-purple 0 :log-pearl 0
+              :message "Tap the water to cast" :flash 0 :result-time 0 :weather :clear :current 0.25})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn fish-frame [fish]
+  (case fish
+    :blue :f0
+    :gold :f1
+    :purple :f5
+    else :f7))
+
+(defn fish-name [fish]
+  (case fish
+    :blue "Blue Gill"
+    :gold "Sun Snapper"
+    :purple "Moonfin"
+    else "Pearl Shell"))
+
+(defn fish-value [fish]
+  (case fish
+    :blue 5
+    :gold 9
+    :purple 16
+    else 26))
+
+(defn fish-difficulty [fish]
+  (case fish
+    :blue 1
+    :gold 1.28
+    :purple 1.68
+    else 2.1))
+
+(defn fish-scale [fish]
+  (case fish
+    :blue 1.05
+    :gold 1.12
+    :purple 1.2
+    else 1.05))
+
+(defn weather-name [weather]
+  (case weather
+    :clear "Clear"
+    :mist "Mist"
+    else "Breeze"))
+
+(defn choose-weather []
+  (let [roll (rand)]
+    (cond
+      (< roll 0.42) :clear
+      (< roll 0.72) :mist
+      else :breeze)))
+
+(defn choose-fish [state]
+  (let [roll (rand)
+        luck (* 0.035 (:bait state))]
+    (cond
+      (< roll (+ 0.06 luck)) :pearl
+      (< roll (+ 0.2 luck)) :purple
+      (< roll 0.56) :gold
+      else :blue)))
+
+(defn rod-cost [state]
+  (* 12 (:rod state)))
+
+(defn reel-cost [state]
+  (* 10 (:reel state)))
+
+(defn bait-cost [state]
+  (* 8 (:bait state)))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn hit? [x y w h]
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box x y w h))))
+
+(defn buy-rod [state]
+  (let [cost (rod-cost state)]
+    (if (and (< (:rod state) 5) (>= (:coins state) cost))
+      (do
+        (sound/play :blip :volume 0.58)
+        (assoc state :coins (- (:coins state) cost) :rod (+ (:rod state) 1)
+                     :message "Rod strength upgraded"))
+      (do
+        (sound/play :pop :volume 0.42)
+        (assoc state :message "Need more coins for rod")))))
+
+(defn buy-reel [state]
+  (let [cost (reel-cost state)]
+    (if (and (< (:reel state) 5) (>= (:coins state) cost))
+      (do
+        (sound/play :blip :volume 0.58)
+        (assoc state :coins (- (:coins state) cost) :reel (+ (:reel state) 1)
+                     :message "Reel speed upgraded"))
+      (do
+        (sound/play :pop :volume 0.42)
+        (assoc state :message "Need more coins for reel")))))
+
+(defn buy-bait [state]
+  (let [cost (bait-cost state)]
+    (if (and (< (:bait state) 5) (>= (:coins state) cost))
+      (do
+        (sound/play :blip :volume 0.58)
+        (assoc state :coins (- (:coins state) cost) :bait (+ (:bait state) 1)
+                     :message "Better bait packed"))
+      (do
+        (sound/play :pop :volume 0.42)
+        (assoc state :message "Need more coins for bait")))))
+
+(defn ready-click? []
+  (or (pressed? :tap)
+      (and (pointer-released?)
+           (> (pointer-y) 130)
+           (< (pointer-x) 330))))
+
+(defn cast [state]
+  (let [fish (choose-fish state)
+        wait (rand-range 1.35 (max 1.55 (- 3.4 (* (:bait state) 0.28))))
+        power (:power state)
+        bob-x (clamp (+ (:aim state) (* (:current state) 18)) 96 318)
+        bob-y (+ 174 (* power 92))]
+    (do
+      (sound/play :blip :volume 0.52)
+      (assoc state :mode :wait :bob-x bob-x :bob-y bob-y :wait wait :bite 0
+                   :fish fish :fish-power (fish-difficulty fish)
+                   :fish-x (+ bob-x (rand-range -36 42)) :fish-y (+ bob-y (rand-range 22 56))
+                   :tension 28 :progress 0 :reel-time 0 :result-time 0 :message "Watch the bobber" :flash 0))))
+
+(defn next-ready [state message]
+  (assoc state :mode :ready :message message :flash 0 :result-time 0
+               :weather (choose-weather) :current (rand-range -0.8 0.8)))
+
+(defn hook-fish [state]
+  (do
+    (sound/play :blip :volume 0.78)
+    (assoc state :mode :reel :progress 7 :tension 34 :reel-time 0
+                 :message (str "Reel the " (fish-name (:fish state))))))
+
+(defn lose-fish [state message]
+  (do
+    (sound/play :pop :volume 0.68)
+    (assoc state :mode :lost :streak 0 :message message :flash 1 :result-time 0)))
+
+(defn log-catch [state fish]
+  (case fish
+    :blue (assoc state :log-blue (+ (:log-blue state) 1))
+    :gold (assoc state :log-gold (+ (:log-gold state) 1))
+    :purple (assoc state :log-purple (+ (:log-purple state) 1))
+    else (assoc state :log-pearl (+ (:log-pearl state) 1))))
+
+(defn finish-catch [state]
+  (let [fish (:fish state)
+        base (fish-value fish)
+        streak (+ (:streak state) 1)
+        bonus (floor (* streak 0.5))
+        earned (+ base bonus)]
+    (do
+      (sound/play :blip :volume 0.88)
+      (log-catch
+        (assoc state :mode :caught :coins (+ (:coins state) earned)
+                     :score (+ (:score state) 1) :streak streak
+                     :best (max (:best state) (+ (:score state) 1))
+                     :message (str (fish-name fish) " +" earned " coins") :flash 1 :result-time 0)
+        fish))))
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.08)
+      (assoc state :music true))))
+
+(defn update-ready [dt state]
+  (let [t (+ (:t state) dt)
+        aim (clamp (if (pointer-held?) (pointer-x) (+ (:aim state) (* (axis :move-x) dt 190))) 92 318)
+        power (+ 0.5 (* 0.5 (sin (* t 2.2))))
+        next (assoc state :t t :aim aim :power power :flash (max 0 (- (:flash state) (* dt 2))))]
+    (cond
+      (hit? 344 88 118 28) (buy-rod next)
+      (hit? 344 121 118 28) (buy-reel next)
+      (hit? 344 154 118 28) (buy-bait next)
+      (ready-click?) (cast next)
+      else next)))
+
+(defn update-wait [dt state]
+  (let [t (+ (:t state) dt)
+        drift (* (:current state) dt 16)
+        bob-x (clamp (+ (:bob-x state) drift (* (sin (* t 1.7)) dt 7)) 92 324)
+        wait (- (:wait state) dt)
+        next (assoc state :t t :bob-x bob-x :wait wait
+                         :fish-x (+ bob-x (* 32 (sin (* t 1.2))))
+                         :fish-y (+ (:bob-y state) 42 (* 9 (sin (* t 2.1)))))]
+    (cond
+      (or (pressed? :tap) (pointer-pressed?)) (do (sound/play :pop :volume 0.32) (assoc next :message "Wait for a bite"))
+      (<= wait 0) (do (sound/play :pop :volume 0.5) (assoc next :mode :bite :bite 1.2 :message "Bite! Tap now" :flash 1))
+      else next)))
+
+(defn update-bite [dt state]
+  (let [t (+ (:t state) dt)
+        bite (- (:bite state) dt)
+        next (assoc state :t t :bite bite :flash (max 0 (- (:flash state) (* dt 1.6)))
+                         :bob-y (+ (:bob-y state) (* 5 (sin (* t 18)))))]
+    (cond
+      (or (pressed? :tap) (pointer-pressed?)) (hook-fish next)
+      (<= bite 0) (lose-fish next "It slipped away")
+      else next)))
+
+(defn update-reel [dt state]
+  (let [t (+ (:t state) dt)
+        holding (or (held? :tap) (pointer-held?))
+        power (:fish-power state)
+        max-tension (+ 78 (* (:rod state) 7))
+        tension-delta (if holding (+ 22 (* power 10)) (- (* power 5) 31))
+        tension (clamp (+ (:tension state) (* dt tension-delta)) 0 118)
+        sweet (and (> tension 28) (< tension max-tension))
+        progress-delta (if holding (if sweet (+ 12 (* (:reel state) 5)) 4) (- (* power 4)))
+        progress (clamp (+ (:progress state) (* dt progress-delta)) 0 100)
+        next (assoc state :t t :tension tension :progress progress :reel-time (+ (:reel-time state) dt)
+                         :fish-x (+ (:bob-x state) (* 40 (sin (* t (+ 1.8 power)))))
+                         :fish-y (+ (:bob-y state) 52 (* 12 (sin (* t (+ 2.8 power)))))
+                         :flash (max 0 (- (:flash state) (* dt 2))))]
+    (cond
+      (> tension 110) (lose-fish next "Line snapped")
+      (> (:reel-time next) 18) (lose-fish next "The fish tired you out")
+      (>= progress 100) (finish-catch next)
+      else next)))
+
+(defn update-result [dt state]
+  (let [next (assoc state :t (+ (:t state) dt) :result-time (+ (:result-time state) dt) :flash (max 0 (- (:flash state) (* dt 1.8))))]
+    (if (and (> (:result-time next) 0.45)
+             (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 120))))
+      (next-ready next "Tap the water to cast")
+      next)))
+
+(defn update [dt state]
+  (let [base (arm-music state)]
+    (cond
+      (back?) (do (sound/play :pop :volume 0.5) (navigation/pop) base)
+      (= (:mode base) :ready) (update-ready dt base)
+      (= (:mode base) :wait) (update-wait dt base)
+      (= (:mode base) :bite) (update-bite dt base)
+      (= (:mode base) :reel) (update-reel dt base)
+      else (update-result dt base))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#315165")
+    (text :font :main :value "Back" :x 29 :y 19 :size 13 :color "#f8fafc")))
+
+(defn shop-button [x y label level cost enough]
+  (group
+    (rect :x x :y y :w 118 :h 28 :color (if enough "#315165" "#334047"))
+    (text :font :main :value (str label " " level) :x (+ x 8) :y (+ y 5) :size 11 :color "#f8fafc")
+    (text :font :main :value (if (< level 5) (str "$" cost) "MAX") :x (+ x 78) :y (+ y 5) :size 11 :color "#facc15")))
+
+(defn water-band [i]
+  (let [y (+ 166 (* i 24))]
+    (line :x1 0 :y1 y :x2 480 :y2 (+ y (* 4 (sin i))) :width 2 :color (if (= (mod i 2) 0) "#236d85" "#1d5d7d"))))
+
+(defn bubble [i state]
+  (let [x (+ 44 (* i 68) (* 8 (sin (+ (:t state) i))))
+        y (+ 178 (mod (+ (* i 31) (* (:t state) -16)) 154))]
+    (circle :x x :y y :r (+ 2 (mod i 3)) :color "#bff4ff")))
+
+(defn swim-fish [i state]
+  (let [x (mod (+ (* i 82) (* (:t state) (+ 12 (* i 2)))) 520)
+        y (+ 206 (* 18 (sin (+ i (* (:t state) 0.8)))))]
+    (sprite :image :fish :frame (frame i) :x (- x 42) :y y :scale 0.62)))
+
+(defn cast-preview [state]
+  (let [aim (:aim state)
+        power (:power state)
+        target-y (+ 174 (* power 92))]
+    (group
+      (line :from [104 138] :angle (rad->deg (angle-to 104 138 aim target-y)) :length (dist 104 138 aim target-y) :width 1 :color "#e5e7eb")
+      (circle :x aim :y target-y :r 8 :color "#facc15")
+      (rect :x 106 :y 336 :w 148 :h 8 :color "#1d4b61")
+      (rect :x 106 :y 336 :w (* 148 power) :h 8 :color "#facc15")
+      (text :font :main :value "Cast power" :x 108 :y 319 :size 12 :color "#dff8ff"))))
+
+(defn line-view [state]
+  (if (= (:mode state) :ready)
+    empty
+    (group
+      (line :from [104 138] :angle (rad->deg (angle-to 104 138 (:bob-x state) (:bob-y state))) :length (dist 104 138 (:bob-x state) (:bob-y state)) :width 2 :color "#f8fafc")
+      (circle :x (:bob-x state) :y (:bob-y state) :r (if (= (:mode state) :bite) 8 6) :color (if (= (:mode state) :bite) "#f97316" "#facc15")))))
+
+(defn reel-meter [state]
+  (if (= (:mode state) :reel)
+    (group
+      (rect :x 154 :y 86 :w 172 :h 10 :color "#12384d")
+      (rect :x 154 :y 86 :w (* 1.72 (:progress state)) :h 10 :color "#7dd3fc")
+      (text :font :main :value "Catch" :x 116 :y 81 :size 12 :color "#dff8ff")
+      (rect :x 154 :y 102 :w 172 :h 10 :color "#12384d")
+      (rect :x 154 :y 102 :w (* 1.46 (:tension state)) :h 10 :color (if (> (:tension state) 92) "#fb7185" "#facc15"))
+      (text :font :main :value "Line" :x 120 :y 97 :size 12 :color "#dff8ff")
+      (text :font :main :value "Hold to reel, release to ease" :x 154 :y 116 :size 11 :color "#bae6fd"))
+    empty))
+
+(defn result-badge [state]
+  (if (or (= (:mode state) :caught) (= (:mode state) :lost))
+    (group
+      (rect :x 114 :y 122 :w 224 :h 72 :color (if (= (:mode state) :caught) "#174d3a" "#4a2832"))
+      (text :font :main :value (:message state) :x 130 :y 142 :size 15 :color "#f8fafc")
+      (text :font :main :value "Tap water to fish again" :x 146 :y 170 :size 13 :color "#dff8ff"))
+    empty))
+
+(defn collection-panel [state]
+  (group
+    (text :font :main :value "Log" :x 358 :y 205 :size 13 :color "#dff8ff")
+    (sprite :image :fish :frame :f0 :x 350 :y 224 :scale 0.42)
+    (text :font :main :value (str (:log-blue state)) :x 378 :y 229 :size 11 :color "#dff8ff")
+    (sprite :image :fish :frame :f1 :x 406 :y 224 :scale 0.42)
+    (text :font :main :value (str (:log-gold state)) :x 434 :y 229 :size 11 :color "#dff8ff")
+    (sprite :image :fish :frame :f5 :x 350 :y 252 :scale 0.42)
+    (text :font :main :value (str (:log-purple state)) :x 378 :y 257 :size 11 :color "#dff8ff")
+    (sprite :image :fish :frame :f7 :x 406 :y 252 :scale 0.42)
+    (text :font :main :value (str (:log-pearl state)) :x 434 :y 257 :size 11 :color "#dff8ff")))
+
+(defn view [state]
+  (let [sky (case (:weather state) :mist "#b7d7dc" :breeze "#9bd5e8" else "#8fd3ff")
+        title-color (if (> (:flash state) 0) "#fef3c7" "#f8fafc")]
+    (group
+      (clear sky)
+      (rect :x 0 :y 84 :w 480 :h 76 :color "#76b7ca")
+      (circle :x 408 :y 42 :r 18 :color "#fff7b8")
+      (sprite :image :reef :x 278 :y 138 :scale 0.58)
+      (rect :x 0 :y 154 :w 480 :h 206 :color "#17617d")
+      (for [i (range 8)] (water-band i))
+      (for [i (range 7)] (bubble i state))
+      (for [i (range 4)] (swim-fish i state))
+      (rect :x 0 :y 128 :w 120 :h 20 :color "#8b6b3f")
+      (rect :x 0 :y 148 :w 132 :h 18 :color "#6d5432")
+      (rect :x 72 :y 118 :w 12 :h 74 :color "#5b452c")
+      (rect :x 24 :y 118 :w 12 :h 70 :color "#5b452c")
+      (line :from [86 128] :angle -16 :length 72 :width 4 :color "#4b3827")
+      (back-button)
+      (text :font :main :value "Fishing Cove" :x 104 :y 16 :size 24 :color title-color)
+      (text :font :main :value (str "Coins " (:coins state) "  Catches " (:score state) "  Streak " (:streak state)) :x 104 :y 47 :size 13 :color "#083344")
+      (text :font :main :value (str (weather-name (:weather state)) " current " (round (* (:current state) 10))) :x 104 :y 65 :size 12 :color "#164e63")
+      (rect :x 338 :y 76 :w 132 :h 212 :color "#102f42")
+      (text :font :main :value "Upgrades" :x 356 :y 77 :size 13 :color "#dff8ff")
+      (shop-button 344 88 "Rod" (:rod state) (rod-cost state) (>= (:coins state) (rod-cost state)))
+      (shop-button 344 121 "Reel" (:reel state) (reel-cost state) (>= (:coins state) (reel-cost state)))
+      (shop-button 344 154 "Bait" (:bait state) (bait-cost state) (>= (:coins state) (bait-cost state)))
+      (collection-panel state)
+      (if (= (:mode state) :ready) (cast-preview state) empty)
+      (line-view state)
+      (if (or (= (:mode state) :wait) (= (:mode state) :bite) (= (:mode state) :reel))
+        (transform :x (:fish-x state) :y (:fish-y state) :rotation (* 5 (sin (* (:t state) 5))) :scale (fish-scale (:fish state))
+          (sprite :image :fish :frame (fish-frame (:fish state)) :x 0 :y 0 :scale 1))
+        empty)
+      (reel-meter state)
+      (result-badge state)
+      (rect :x 0 :y 300 :w 338 :h 60 :color "#0f3d54")
+      (text :font :main :value (:message state) :x 18 :y 313 :size 15 :color "#f8fafc")
+      (text :font :main :value "A/D aim. Tap to cast or hook. Hold to reel." :x 18 :y 338 :size 12 :color "#bae6fd"))))

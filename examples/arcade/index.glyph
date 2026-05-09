@@ -68,6 +68,7 @@
       (hit? 320 260 144 32) (open "food-rush/game.glyph" next)
       (hit? 16 296 144 32) (open "chef-chaos/game.glyph" next)
       (hit? 168 296 144 32) (open "circuit-keep/game.glyph" next)
+      (hit? 320 296 144 32) (open "fishing-cove/game.glyph" next)
       else next)))
 
 (defn icon-frame [i]
@@ -124,4 +125,5 @@
     (button 320 260 "Food Rush" :food 17)
     (button 16 296 "Chef Chaos" :food 18)
     (button 168 296 "Circuit Keep" :tower 19)
+    (button 320 296 "Fishing Cove" :fish 20)
     (text :font :main :value "Click a game. A/D or arrows in most scenes." :x 130 :y 338 :size 13 :color "#9ca3af")))
