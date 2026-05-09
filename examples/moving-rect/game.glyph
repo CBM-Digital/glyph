@@ -9,7 +9,7 @@
   {:x 0})
 
 (defn update [dt state]
-  (update state :x - (* 100 dt)))
+  (update state :x + (* 100 dt)))
 
 (defn view [state]
   (group

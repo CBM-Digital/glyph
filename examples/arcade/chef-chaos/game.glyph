@@ -1,0 +1,325 @@
+(game chef-chaos
+  :title "Chef Chaos"
+  :size [480 360]
+  :assets {:food "../assets/kenney/strips/food-kit.png"
+           :items "../assets/kenney/strips/items-kit.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :x 224 :y 216 :held -1 :prep-a -1 :prep-b -1 :dish -1
+              :order 0 :score 0 :streak 0 :time 90 :patience 24
+              :dirty 1 :wash 0 :flash 0 :message "Make the order!" :over false})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn food-name [n]
+  (case n
+    0 "Apple"
+    1 "Bun"
+    2 "Dough"
+    3 "Berry"
+    4 "Steak"
+    5 "Glaze"
+    6 "Spice"
+    7 "Shell"
+    else "None"))
+
+(defn order-name [n]
+  (case n
+    0 "Burger"
+    1 "Berry Pie"
+    2 "Taco"
+    else "Sweet Ring"))
+
+(defn need-a [order]
+  (case order
+    0 1
+    1 2
+    2 4
+    else 3))
+
+(defn need-b [order]
+  (case order
+    0 4
+    1 3
+    2 7
+    else 5))
+
+(defn dish-frame [order]
+  (case order
+    0 1
+    1 2
+    2 7
+    else 5))
+
+(defn next-order [state]
+  (mod (+ (:order state) 1 (rand-int 3)) 4))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 78 32))))
+
+(defn chef-box [state]
+  (rect-box (:x state) (:y state) 36 42))
+
+(defn at? [state x y w h]
+  (overlap? (chef-box state) (rect-box x y w h)))
+
+(defn tap-at? [state x y w h]
+  (and (pressed? :tap) (at? state x y w h)))
+
+(defn recipe-match? [state]
+  (let [a (:prep-a state)
+        b (:prep-b state)
+        want-a (need-a (:order state))
+        want-b (need-b (:order state))]
+    (or (and (= a want-a) (= b want-b))
+        (and (= a want-b) (= b want-a)))))
+
+(defn clear-prep [state message]
+  (assoc state :prep-a -1 :prep-b -1 :message message))
+
+(defn pick [state item]
+  (if (= (:held state) -1)
+    (do
+      (sound/play :blip :volume 0.45)
+      (assoc state :held item :message (str "Grabbed " (food-name item))))
+    (assoc state :message "Hands full!")))
+
+(defn prep [state]
+  (cond
+    (= (:held state) -1)
+      (if (or (not= (:prep-a state) -1) (not= (:prep-b state) -1))
+        (do
+          (sound/play :pop :volume 0.35)
+          (assoc state :prep-a -1 :prep-b -1 :message "Prep cleared"))
+        (assoc state :message "Bring ingredients"))
+    (= (:prep-a state) -1)
+      (do
+        (sound/play :blip :volume 0.55)
+        (assoc state :prep-a (:held state) :held -1 :message "First ingredient ready"))
+    (= (:prep-b state) -1)
+      (do
+        (sound/play :blip :volume 0.65)
+        (assoc state :prep-b (:held state) :held -1 :message "Recipe combined"))
+    else (assoc state :message "Prep is full")))
+
+(defn cook [state]
+  (cond
+    (or (= (:prep-a state) -1) (= (:prep-b state) -1))
+      (assoc state :message "Prep two ingredients")
+    (not= (:dish state) -1)
+      (assoc state :message "Plate the dish first")
+    (recipe-match? state)
+      (do
+        (sound/play :blip :volume 0.85)
+        (assoc state :prep-a -1 :prep-b -1 :dish (:order state) :flash 0.55 :message "Sizzle! Dish ready"))
+    else
+      (do
+        (sound/play :pop :volume 0.75)
+        (assoc state :prep-a -1 :prep-b -1 :dirty (min 8 (+ (:dirty state) 1))
+                     :streak 0 :patience (max 3 (- (:patience state) 5))
+                     :flash 1 :message "Wrong recipe!"))))
+
+(defn serve [state]
+  (if (= (:dish state) -1)
+    (assoc state :message "Cook a dish first")
+    (let [bonus (+ 10 (* (:streak state) 3) (ceil (:patience state)))]
+      (do
+        (sound/play :blip :volume 0.9)
+        (assoc state
+          :score (+ (:score state) bonus)
+          :streak (+ (:streak state) 1)
+          :dirty (min 8 (+ (:dirty state) 1))
+          :dish -1
+          :order (next-order state)
+          :patience (max 14 (- 24 (floor (/ (:score state) 60))))
+          :message (str "Served! +" bonus))))))
+
+(defn wash-step [dt state]
+  (if (and (> (:dirty state) 0) (held? :tap) (at? state 332 244 104 82))
+    (let [wash (+ (:wash state) (* dt 1.75))]
+      (if (>= wash 1)
+        (do
+          (sound/play :pop :volume 0.42)
+          (assoc state :dirty (max 0 (- (:dirty state) 1)) :wash 0 :message "Washed up!"))
+        (assoc state :wash wash :message "Scrubbing...")))
+    (assoc state :wash 0)))
+
+(defn miss-order [state]
+  (do
+    (sound/play :pop :volume 0.82)
+    (assoc state
+      :prep-a -1
+      :prep-b -1
+      :dish -1
+      :dirty (min 8 (+ (:dirty state) 2))
+      :streak 0
+      :order (next-order state)
+      :patience 22
+      :flash 1
+      :message "Order missed!")))
+
+(defn move-state [dt state]
+  (let [slow (* (max 0 (- (:dirty state) 3)) 8)
+        speed (max 112 (- 180 slow))
+        x (clamp (+ (:x state) (* (axis :move-x) dt speed)) 22 422)
+        y (clamp (+ (:y state) (* (axis :move-y) dt speed)) 76 300)]
+    (assoc state
+      :t (+ (:t state) dt)
+      :x x
+      :y y
+      :time (max 0 (- (:time state) dt))
+      :patience (- (:patience state) dt)
+      :flash (max 0 (- (:flash state) (* dt 2.8))))))
+
+(defn interact [state]
+  (cond
+    (tap-at? state 34 78 68 58) (pick state 1)
+    (tap-at? state 112 78 68 58) (pick state 4)
+    (tap-at? state 34 142 68 58) (pick state 2)
+    (tap-at? state 112 142 68 58) (pick state 3)
+    (tap-at? state 34 206 68 58) (pick state 7)
+    (tap-at? state 112 206 68 58) (pick state 5)
+    (tap-at? state 194 112 94 78) (prep state)
+    (tap-at? state 196 224 92 76) (cook state)
+    (tap-at? state 340 112 92 78) (serve state)
+    else state))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (:over state) (pressed? :tap)) initial
+    (:over state) state
+    else
+      (let [moved (move-state dt state)
+            timed (if (<= (:patience moved) 0) (miss-order moved) moved)
+            washed (wash-step dt timed)
+            acted (interact washed)
+            over? (or (<= (:time acted) 0) (>= (:dirty acted) 8))]
+        (if over?
+          (assoc acted :over true :flash 1 :message "Kitchen closed!")
+          acted))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 78 :h 32 :color "#2a3040")
+    (text :font :main :value "Back" :x 30 :y 19 :size 15 :color "#f8fafc")))
+
+(defn station [x y w h label color]
+  (group
+    (rect :x x :y y :w w :h h :color color)
+    (rect :x (+ x 4) :y (+ y 4) :w (- w 8) :h 10 :color "#ffffff")
+    (text :font :main :value label :x (+ x 10) :y (+ y 18) :size 13 :color "#f8fafc")))
+
+(defn ingredient-bin [x y item label]
+  (group
+    (rect :x x :y y :w 68 :h 58 :color "#3a4453")
+    (sprite :image :food :frame (frame item) :x (+ x 16) :y (+ y 8) :scale 0.78)
+    (text :font :main :value label :x (+ x 9) :y (+ y 42) :size 10 :color "#e5e7eb")))
+
+(defn food-chip [x y item]
+  (if (= item -1)
+    (rect :x x :y y :w 36 :h 36 :color "#1f2937")
+    (group
+      (rect :x x :y y :w 36 :h 36 :color "#111827")
+      (sprite :image :food :frame (frame item) :x (+ x 4) :y (+ y 4) :scale 0.58))))
+
+(defn held-node [state]
+  (if (= (:held state) -1)
+    empty
+    (transform :x (+ (:x state) 5) :y (- (:y state) 28) :rotation (* 8 (sin (* (:t state) 12)))
+      (sprite :image :food :frame (frame (:held state)) :x 0 :y 0 :scale 0.68))))
+
+(defn dish-node [state]
+  (if (= (:dish state) -1)
+    (rect :x 366 :y 146 :w 36 :h 20 :color "#e5e7eb")
+    (sprite :image :food :frame (frame (dish-frame (:dish state))) :x 360 :y 132 :scale 0.8)))
+
+(defn dirty-pile [state]
+  (for [i (range (:dirty state))]
+    (transform :x (+ 348 (* (mod i 4) 18)) :y (+ 274 (* (floor (/ i 4)) 18)) :rotation (- (* i 9) 12)
+      (sprite :image :items :frame (frame (+ i 1)) :x 0 :y 0 :scale 0.42))))
+
+(defn order-board [state]
+  (let [pa (/ (:patience state) 24)]
+    (group
+      (rect :x 172 :y 10 :w 292 :h 56 :color "#1f2937")
+      (text :font :main :value (str "Order: " (order-name (:order state))) :x 186 :y 18 :size 16 :color "#fef3c7")
+      (text :font :main :value (str (food-name (need-a (:order state))) " + " (food-name (need-b (:order state)))) :x 186 :y 42 :size 12 :color "#93c5fd")
+      (rect :x 332 :y 46 :w 112 :h 8 :color "#374151")
+      (rect :x 332 :y 46 :w (max 0 (* 112 pa)) :h 8 :color (if (< pa 0.28) "#ef4444" "#22c55e"))
+      (sprite :image :food :frame (frame (dish-frame (:order state))) :x 418 :y 14 :scale 0.62))))
+
+(defn chef [state]
+  (let [bob (* 3 (sin (* (:t state) 10)))
+        tilt (* 5 (axis :move-x))]
+    (transform :x (:x state) :y (+ (:y state) bob) :rotation tilt
+      (rect :x 6 :y 18 :w 24 :h 22 :color "#2563eb")
+      (circle :x 18 :y 14 :r 13 :color "#f8c99a")
+      (circle :x 12 :y 2 :r 9 :color "#f8fafc")
+      (circle :x 22 :y 2 :r 9 :color "#f8fafc")
+      (rect :x 7 :y 5 :w 22 :h 8 :color "#f8fafc")
+      (rect :x 3 :y 38 :w 11 :h 12 :color "#1d4ed8")
+      (rect :x 22 :y 38 :w 11 :h 12 :color "#1d4ed8"))))
+
+(defn over-panel [state]
+  (if (:over state)
+    (group
+      (rect :x 52 :y 86 :w 376 :h 184 :color "#111827")
+      (rect :x 68 :y 102 :w 344 :h 152 :color "#263241")
+      (text :font :main :value "Kitchen Closed" :x 136 :y 120 :size 28 :color "#fee2e2")
+      (text :font :main :value (str "Score " (:score state) "   Streak " (:streak state)) :x 154 :y 160 :size 17 :color "#fef3c7")
+      (text :font :main :value "Tap to restart" :x 176 :y 206 :size 20 :color "#93c5fd"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear (if (> (:flash state) 0) "#3b1720" "#16212b"))
+    (for [i (range 7)]
+      (line :x1 0 :y1 (+ 78 (* i 40)) :x2 480 :y2 (+ 78 (* i 40)) :width 1 :color "#203040"))
+    (for [i (range 12)]
+      (line :x1 (* i 40) :y1 70 :x2 (* i 40) :y2 360 :width 1 :color "#203040"))
+    (rect :x 0 :y 0 :w 480 :h 72 :color "#111827")
+    (back-button)
+    (text :font :main :value "Chef Chaos" :x 92 :y 17 :size 24 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state)) :x 92 :y 47 :size 13 :color "#fbbf24")
+    (text :font :main :value (str "Time " (ceil (:time state))) :x 18 :y 50 :size 13 :color "#93c5fd")
+    (order-board state)
+    (ingredient-bin 34 78 1 "Bun")
+    (ingredient-bin 112 78 4 "Steak")
+    (ingredient-bin 34 142 2 "Dough")
+    (ingredient-bin 112 142 3 "Berry")
+    (ingredient-bin 34 206 7 "Shell")
+    (ingredient-bin 112 206 5 "Glaze")
+    (station 194 112 94 78 "Prep" "#43505f")
+    (station 196 224 92 76 "Stove" "#59422d")
+    (station 340 112 92 78 "Plate" "#385144")
+    (station 332 244 104 82 "Sink" "#264c63")
+    (rect :x 210 :y 144 :w 62 :h 30 :color "#283241")
+    (food-chip 212 141 (:prep-a state))
+    (food-chip 252 141 (:prep-b state))
+    (circle :x 242 :y 268 :r 29 :color "#2b1d15")
+    (circle :x 242 :y 268 :r 20 :color "#ef4444")
+    (dish-node state)
+    (dirty-pile state)
+    (rect :x 348 :y 314 :w 72 :h 6 :color "#0f172a")
+    (rect :x 348 :y 314 :w (* 72 (:wash state)) :h 6 :color "#67e8f9")
+    (chef state)
+    (held-node state)
+    (text :font :main :value (:message state) :x 166 :y 332 :size 14 :color "#f8fafc")
+    (text :font :main :value (str "Dirty " (:dirty state) "/8  Streak " (:streak state)) :x 318 :y 332 :size 12 :color "#fca5a5")
+    (over-panel state)))
