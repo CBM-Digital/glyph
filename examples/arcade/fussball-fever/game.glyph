@@ -1,0 +1,304 @@
+(game fussball-fever
+  :title "Fussball Fever"
+  :size [480 360]
+  :assets {:kit "../assets/kenney/strips/sports-kit.png"
+           :sheet "../assets/kenney/sheets/sports-equipment.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"
+           :theme "../assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0
+              :ball-x 240 :ball-y 194 :vx 0 :vy 0
+              :blue-y 194 :red-y 194
+              :blue-score 0 :red-score 0
+              :serve 0.8 :serve-dir 1
+              :spin 0 :combo 0 :flash 0 :shake 0
+              :winner 0 :music false})
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 78 32))))
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.09)
+      (assoc state :music true))))
+
+(defn restart [state]
+  (assoc initial :music (:music state)))
+
+(defn goal-y? [y]
+  (and (> y 150) (< y 238)))
+
+(defn win-score []
+  5)
+
+(defn score-blue [state]
+  (let [score (+ (:blue-score state) 1)
+        won (>= score (win-score))]
+    (do
+      (sound/play :blip :volume 0.9)
+      (assoc state
+        :ball-x 240 :ball-y 194 :vx 0 :vy 0
+        :blue-score score :combo 0 :flash 1 :shake 0.35
+        :serve 1.05 :serve-dir -1 :winner (if won 1 0)))))
+
+(defn score-red [state]
+  (let [score (+ (:red-score state) 1)
+        won (>= score (win-score))]
+    (do
+      (sound/play :pop :volume 0.85)
+      (assoc state
+        :ball-x 240 :ball-y 194 :vx 0 :vy 0
+        :red-score score :combo 0 :flash 1 :shake 0.35
+        :serve 1.05 :serve-dir 1 :winner (if won -1 0)))))
+
+(defn serve-ball [state]
+  (do
+    (sound/play :blip :volume 0.5)
+    (assoc state
+      :serve 0
+      :vx (* (:serve-dir state) (rand-range 126 178))
+      :vy (rand-range -88 88)
+      :flash 0.35)))
+
+(defn player-hit? [state x y]
+  (and (< (abs (- (:ball-x state) x)) 20)
+       (< (abs (- (:ball-y state) y)) 20)))
+
+(defn blue-kick [state y]
+  (let [power (if (> (:spin state) 0) 360 250)
+        lift (* (- (:ball-y state) y) 6.2)
+        steer (* (axis :move-y) 110)]
+    (do
+      (sound/play :blip :volume (if (> (:spin state) 0) 0.86 0.56) :pitch (if (> (:spin state) 0) 1.18 1))
+      (assoc state
+        :ball-x (+ (:ball-x state) 24)
+        :vx power
+        :vy (clamp (+ lift steer) -275 275)
+        :combo (+ (:combo state) 1)
+        :flash 0.32
+        :shake (if (> (:spin state) 0) 0.16 0.06)))))
+
+(defn red-kick [state y]
+  (let [power (+ 218 (* (:red-score state) 8))
+        lift (* (- (:ball-y state) y) 5.5)]
+    (do
+      (sound/play :pop :volume 0.42 :pitch 1.07)
+      (assoc state
+        :ball-x (- (:ball-x state) 24)
+        :vx (- 0 power)
+        :vy (clamp (+ lift (rand-range -35 35)) -245 245)
+        :combo 0
+        :flash 0.18
+        :shake 0.05))))
+
+(defn blue-collisions [state]
+  (cond
+    (player-hit? state 112 (- (:blue-y state) 38)) (blue-kick state (- (:blue-y state) 38))
+    (player-hit? state 112 (+ (:blue-y state) 38)) (blue-kick state (+ (:blue-y state) 38))
+    (player-hit? state 236 (- (:blue-y state) 66)) (blue-kick state (- (:blue-y state) 66))
+    (player-hit? state 236 (:blue-y state)) (blue-kick state (:blue-y state))
+    (player-hit? state 236 (+ (:blue-y state) 66)) (blue-kick state (+ (:blue-y state) 66))
+    (player-hit? state 366 (- (:blue-y state) 32)) (blue-kick state (- (:blue-y state) 32))
+    (player-hit? state 366 (+ (:blue-y state) 32)) (blue-kick state (+ (:blue-y state) 32))
+    else state))
+
+(defn red-collisions [state]
+  (cond
+    (player-hit? state 414 (:red-y state)) (red-kick state (:red-y state))
+    (player-hit? state 306 (- (:red-y state) 42)) (red-kick state (- (:red-y state) 42))
+    (player-hit? state 306 (+ (:red-y state) 42)) (red-kick state (+ (:red-y state) 42))
+    (player-hit? state 184 (- (:red-y state) 66)) (red-kick state (- (:red-y state) 66))
+    (player-hit? state 184 (:red-y state)) (red-kick state (:red-y state))
+    (player-hit? state 184 (+ (:red-y state) 66)) (red-kick state (+ (:red-y state) 66))
+    (player-hit? state 74 (- (:red-y state) 34)) (red-kick state (- (:red-y state) 34))
+    (player-hit? state 74 (+ (:red-y state) 34)) (red-kick state (+ (:red-y state) 34))
+    else state))
+
+(defn wall-bounce [state]
+  (cond
+    (< (:ball-y state) 80)
+      (do
+        (sound/play :pop :volume 0.22 :pitch 1.22)
+        (assoc state :ball-y 80 :vy (abs (:vy state)) :shake 0.04))
+    (> (:ball-y state) 306)
+      (do
+        (sound/play :pop :volume 0.22 :pitch 1.22)
+        (assoc state :ball-y 306 :vy (- 0 (abs (:vy state))) :shake 0.04))
+    (and (< (:ball-x state) 34) (not (goal-y? (:ball-y state))))
+      (do
+        (sound/play :pop :volume 0.28 :pitch 0.92)
+        (assoc state :ball-x 34 :vx (abs (:vx state)) :shake 0.08))
+    (and (> (:ball-x state) 446) (not (goal-y? (:ball-y state))))
+      (do
+        (sound/play :pop :volume 0.28 :pitch 0.92)
+        (assoc state :ball-x 446 :vx (- 0 (abs (:vx state))) :shake 0.08))
+    else state))
+
+(defn resolve-ball [state]
+  (cond
+    (and (< (:ball-x state) 22) (goal-y? (:ball-y state))) (score-red state)
+    (and (> (:ball-x state) 458) (goal-y? (:ball-y state))) (score-blue state)
+    else (red-collisions (blue-collisions (wall-bounce state)))))
+
+(defn update-play [dt state]
+  (let [blue-y (clamp (+ (:blue-y state) (* (axis :move-y) dt 230)) 146 238)
+        target (clamp (:ball-y state) 146 238)
+        red-y (clamp (lerp (:red-y state) target (clamp (* dt (+ 2.2 (* (:red-score state) 0.18))) 0 1)) 146 238)
+        damp (- 1 (* dt 0.44))
+        vx (* (:vx state) damp)
+        vy (* (:vy state) damp)
+        nudged-vx (if (< (abs vx) 22) (if (> (:ball-x state) 240) -76 76) vx)
+        moved (assoc state
+                :t (+ (:t state) dt)
+                :blue-y blue-y
+                :red-y red-y
+                :spin (if (pressed? :tap) 0.18 (max 0 (- (:spin state) dt)))
+                :flash (max 0 (- (:flash state) (* dt 2.5)))
+                :shake (max 0 (- (:shake state) (* dt 2.8)))
+                :vx nudged-vx
+                :vy vy
+                :ball-x (+ (:ball-x state) (* nudged-vx dt))
+                :ball-y (+ (:ball-y state) (* vy dt)))]
+    (resolve-ball moved)))
+
+(defn update-serve [dt state]
+  (let [next (assoc state
+               :t (+ (:t state) dt)
+               :blue-y (clamp (+ (:blue-y state) (* (axis :move-y) dt 230)) 146 238)
+               :red-y (clamp (lerp (:red-y state) 194 (clamp (* dt 2.4) 0 1)) 146 238)
+               :serve (max 0 (- (:serve state) dt))
+               :spin (if (pressed? :tap) 0.18 (max 0 (- (:spin state) dt)))
+               :flash (max 0 (- (:flash state) (* dt 2.5)))
+               :shake (max 0 (- (:shake state) (* dt 2.8))))]
+    (if (or (pressed? :tap) (= (:serve next) 0))
+      (serve-ball next)
+      next)))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (not= (:winner state) 0)
+      (let [base (arm-music state)
+            next (assoc base :t (+ (:t base) dt) :flash (max 0 (- (:flash base) (* dt 1.5))))]
+        (if (pressed? :tap) (restart next) next))
+    (> (:serve state) 0) (update-serve dt (arm-music state))
+    else (update-play dt (arm-music state))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 78 :h 32 :color "#1f3440")
+    (text :font :main :value "Back" :x 29 :y 19 :size 15 :color "#edf7ff")))
+
+(defn rod [x y color]
+  (group
+    (rect :x (- x 3) :y 76 :w 6 :h 234 :color "#d8dde2")
+    (rect :x (- x 7) :y (- y 82) :w 14 :h 164 :color color)))
+
+(defn player [x y color frame-id flip]
+  (group
+    (circle :x (+ x 17) :y (+ y 20) :r 16 :color color)
+    (sprite :image :kit :frame frame-id :x x :y y :scale 0.72 :flip-x flip)))
+
+(defn blue-player [x y]
+  (player (- x 17) (- y 20) "#285db8" :f0 false))
+
+(defn red-player [x y]
+  (player (- x 17) (- y 20) "#b8323c" :f3 true))
+
+(defn blue-row [state]
+  (group
+    (rod 112 (:blue-y state) "#1d458c")
+    (rod 236 (:blue-y state) "#1d458c")
+    (rod 366 (:blue-y state) "#1d458c")
+    (blue-player 112 (- (:blue-y state) 38))
+    (blue-player 112 (+ (:blue-y state) 38))
+    (blue-player 236 (- (:blue-y state) 66))
+    (blue-player 236 (:blue-y state))
+    (blue-player 236 (+ (:blue-y state) 66))
+    (blue-player 366 (- (:blue-y state) 32))
+    (blue-player 366 (+ (:blue-y state) 32))))
+
+(defn red-row [state]
+  (group
+    (rod 74 (:red-y state) "#8d2630")
+    (rod 184 (:red-y state) "#8d2630")
+    (rod 306 (:red-y state) "#8d2630")
+    (rod 414 (:red-y state) "#8d2630")
+    (red-player 74 (- (:red-y state) 34))
+    (red-player 74 (+ (:red-y state) 34))
+    (red-player 184 (- (:red-y state) 66))
+    (red-player 184 (:red-y state))
+    (red-player 184 (+ (:red-y state) 66))
+    (red-player 306 (- (:red-y state) 42))
+    (red-player 306 (+ (:red-y state) 42))
+    (red-player 414 (:red-y state))))
+
+(defn field-lines []
+  (group
+    (rect :x 28 :y 74 :w 424 :h 238 :color "#1d6a46")
+    (rect :x 36 :y 82 :w 408 :h 222 :color "#267a50")
+    (line :x1 240 :y1 82 :x2 240 :y2 304 :width 3 :color "#d7f1df")
+    (circle :x 240 :y 193 :r 42 :color "#2f8a5d")
+    (circle :x 240 :y 193 :r 4 :color "#d7f1df")
+    (rect :x 18 :y 154 :w 22 :h 80 :color "#d7f1df")
+    (rect :x 440 :y 154 :w 22 :h 80 :color "#d7f1df")
+    (rect :x 36 :y 128 :w 54 :h 132 :color "#2b8659")
+    (rect :x 390 :y 128 :w 54 :h 132 :color "#2b8659")))
+
+(defn ball [state]
+  (let [pulse (+ 1 (* (:flash state) 0.25))]
+    (group
+      (circle :x (:ball-x state) :y (:ball-y state) :r (* 10 pulse) :color "#f9fafb")
+      (circle :x (- (:ball-x state) 3) :y (- (:ball-y state) 3) :r 3 :color "#111827")
+      (sprite :image :kit :frame :f2 :x (- (:ball-x state) 16) :y (- (:ball-y state) 16) :scale 0.44))))
+
+(defn combo-text [state]
+  (if (> (:combo state) 1)
+    (text :font :main :value (str "Combo x" (:combo state)) :x 204 :y 318 :size 15 :color "#facc15")
+    empty))
+
+(defn serve-text [state]
+  (if (> (:serve state) 0)
+    (text :font :main :value "Press Space to serve" :x 164 :y 318 :size 17 :color "#edf7ff")
+    empty))
+
+(defn winner-text [state]
+  (cond
+    (= (:winner state) 1)
+      (group
+        (rect :x 126 :y 142 :w 228 :h 74 :color "#17345f")
+        (text :font :main :value "Blue wins!" :x 177 :y 154 :size 31 :color "#edf7ff")
+        (text :font :main :value "Space to run it back" :x 164 :y 192 :size 16 :color "#93c5fd"))
+    (= (:winner state) -1)
+      (group
+        (rect :x 126 :y 142 :w 228 :h 74 :color "#5f1f28")
+        (text :font :main :value "Red wins!" :x 183 :y 154 :size 31 :color "#fff1f2")
+        (text :font :main :value "Space to run it back" :x 164 :y 192 :size 16 :color "#fca5a5"))
+    else empty))
+
+(defn view [state]
+  (let [jitter (* (:shake state) 8 (sin (* (:t state) 52)))]
+    (group
+      (clear "#10231f")
+      (rect :x 0 :y 0 :w 480 :h 64 :color "#172b35")
+      (back-button)
+      (sprite :image :sheet :x 383 :y 8 :scale 0.38)
+      (text :font :main :value "Fussball Fever" :x 118 :y 13 :size 27 :color "#edf7ff")
+      (text :font :main :value (str (:blue-score state) " - " (:red-score state)) :x 214 :y 42 :size 19 :color "#facc15")
+      (text :font :main :value "W/S move rods, Space shoots" :x 276 :y 43 :size 12 :color "#a7f3d0")
+      (transform :x jitter :y 0
+        (field-lines)
+        (red-row state)
+        (blue-row state)
+        (ball state)
+        (combo-text state)
+        (serve-text state))
+      (winner-text state))))
