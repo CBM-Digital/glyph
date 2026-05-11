@@ -100,18 +100,23 @@ Then change a color or text string in the current scene and save. The desktop ru
 
 ## Arcade Scene Bundle
 
-The milestone 7 proof of concept is a small multi-scene arcade bundle:
+The arcade bundle is a curated set of distinct, polished microgames:
 
 ```bash
 build/glyph --desktop examples/arcade/index.glyph
 ```
 
-The index scene uses `navigation/push` to open three games:
+The index scene uses `navigation/push` to open eight games:
 
 ```text
-Perfect Shot: tap when the rotating blue shot aligns with the green target
-Stack Tower: tap to drop moving blocks onto the stack
-Lane Dodger: use Left/Right or A/D to dodge traffic
+Alpine Rush: carve ski gates, manage stamina, jump hazards
+Asteroid Belt: rotate, thrust, shoot, clear waves
+Tank Siege: drive, aim, survive arena waves
+Circuit Keep: build and upgrade towers to hold a route
+Crown Cavern: run, double-jump, collect gems, reach the crown
+Fishing Cove: cast, hook, manage line tension, buy upgrades
+Chef Chaos: gather ingredients, cook orders, manage dirty dishes
+Fussball Fever: move rods, charge spin shots, score goals
 ```
 
 Each game has a top-left Back button that calls `navigation/pop` to return to the index scene. The bundle uses PNG sprite sheets from `examples/arcade/assets`, WAV sounds, and a TTF font rendered by SDL_ttf.
@@ -172,8 +177,8 @@ build/glyph --run examples/arcade/index.glyph --frames 2
 Expected output includes:
 
 ```text
-assets: 5
-draw-commands: 13
+assets: 12
+draw-commands: 47
 audio-commands: 1
 ```
 

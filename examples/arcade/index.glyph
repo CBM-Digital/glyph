@@ -2,21 +2,13 @@
   :title "Glyph Arcade"
   :size [480 360]
   :assets {:logo "assets/glyph-logo.png"
-           :orb "assets/kenney/strips/puzzle-kit.png"
            :sports "assets/kenney/strips/sports-kit.png"
-           :board "assets/kenney/strips/boardgame-kit.png"
            :tank "assets/kenney/strips/tank-kit.png"
-           :town "assets/kenney/strips/tiny-town-kit.png"
-           :battle "assets/kenney/strips/tiny-battle-kit.png"
            :ski "assets/kenney/strips/tiny-ski-kit.png"
            :platform "assets/kenney/strips/platform-kit.png"
-           :puzzle "assets/kenney/strips/puzzle-kit.png"
            :tower "assets/kenney/strips/tower-defense-kit.png"
            :fish "assets/kenney/strips/fish-kit.png"
            :space "assets/kenney/strips/space-kit.png"
-           :pirate "assets/kenney/strips/pirate-kit.png"
-           :items "assets/kenney/strips/items-kit.png"
-           :particle "assets/kenney/strips/particle-kit.png"
            :food "assets/kenney/strips/food-kit.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "assets/blip.wav"
@@ -48,31 +40,14 @@
   (let [base (arm-music state)
         next (assoc base :t (+ (:t base) dt))]
     (cond
-      (hit? 16 76 144 28) (open "perfect-shot/game.glyph" next)
-      (hit? 168 76 144 28) (open "stack-tower/game.glyph" next)
-      (hit? 320 76 144 28) (open "lane-dodger/game.glyph" next)
-      (hit? 16 108 144 28) (open "sports-breakaway/game.glyph" next)
-      (hit? 168 108 144 28) (open "chip-chase/game.glyph" next)
-      (hit? 320 108 144 28) (open "tank-run/game.glyph" next)
-      (hit? 16 140 144 28) (open "town-delivery/game.glyph" next)
-      (hit? 168 140 144 28) (open "battle-banner/game.glyph" next)
-      (hit? 320 140 144 28) (open "ski-slalom/game.glyph" next)
-      (hit? 16 172 144 28) (open "platform-hop/game.glyph" next)
-      (hit? 168 172 144 28) (open "puzzle-pop/game.glyph" next)
-      (hit? 320 172 144 28) (open "tower-trace/game.glyph" next)
-      (hit? 16 204 144 28) (open "reef-dash/game.glyph" next)
-      (hit? 168 204 144 28) (open "space-run/game.glyph" next)
-      (hit? 320 204 144 28) (open "pirate-broadside/game.glyph" next)
-      (hit? 16 236 144 28) (open "item-sprint/game.glyph" next)
-      (hit? 168 236 144 28) (open "particle-swirl/game.glyph" next)
-      (hit? 320 236 144 28) (open "food-rush/game.glyph" next)
-      (hit? 16 268 144 28) (open "chef-chaos/game.glyph" next)
-      (hit? 168 268 144 28) (open "circuit-keep/game.glyph" next)
-      (hit? 320 268 144 28) (open "fishing-cove/game.glyph" next)
-      (hit? 16 300 144 28) (open "fussball-fever/game.glyph" next)
-      (hit? 168 300 144 28) (open "crown-cavern/game.glyph" next)
-      (hit? 320 300 144 28) (open "tank-siege/game.glyph" next)
-      (hit? 16 332 144 28) (open "asteroid-belt/game.glyph" next)
+      (hit? 22 96 212 50) (open "ski-slalom/game.glyph" next)
+      (hit? 246 96 212 50) (open "asteroid-belt/game.glyph" next)
+      (hit? 22 158 212 50) (open "tank-siege/game.glyph" next)
+      (hit? 246 158 212 50) (open "circuit-keep/game.glyph" next)
+      (hit? 22 220 212 50) (open "crown-cavern/game.glyph" next)
+      (hit? 246 220 212 50) (open "fishing-cove/game.glyph" next)
+      (hit? 22 282 212 50) (open "chef-chaos/game.glyph" next)
+      (hit? 246 282 212 50) (open "fussball-fever/game.glyph" next)
       else next)))
 
 (defn icon-frame [i]
@@ -95,11 +70,13 @@
     4 "#29375a"
     else "#4a2d37"))
 
-(defn button [x y label image i]
+(defn button [x y label tag image i]
   (group
-    (rect :x x :y y :w 144 :h 28 :color (button-color i))
-    (sprite :image image :frame (icon-frame i) :x (+ x 8) :y (+ y 2) :scale 0.44)
-    (text :font :main :value label :x (+ x 34) :y (+ y 8) :size 10 :color "#f8fafc")))
+    (rect :x x :y y :w 212 :h 50 :color (button-color i))
+    (rect :x (+ x 6) :y (+ y 6) :w 38 :h 38 :color "#111827")
+    (sprite :image image :frame (icon-frame i) :x (+ x 9) :y (+ y 8) :scale 0.58)
+    (text :font :main :value label :x (+ x 54) :y (+ y 9) :size 15 :color "#f8fafc")
+    (text :font :main :value tag :x (+ x 54) :y (+ y 30) :size 10 :color "#cbd5e1")))
 
 (defn view [state]
   (group
@@ -108,29 +85,12 @@
     (transform :x 28 :y 14 :rotation (* 5 (sin (* (:t state) 2)))
       (sprite :image :logo :x 0 :y 0 :scale 0.44))
     (text :font :main :value "Glyph Arcade" :x 88 :y 16 :size 28 :color "#f8fafc")
-    (text :font :main :value "Kenney-powered microgames" :x 90 :y 48 :size 14 :color "#93c5fd")
-    (button 16 76 "Perfect Shot" :orb 0)
-    (button 168 76 "Stack Tower" :town 1)
-    (button 320 76 "Lane Dodger" :tank 2)
-    (button 16 108 "Sports Breakaway" :sports 3)
-    (button 168 108 "Chip Chase" :board 4)
-    (button 320 108 "Tank Run" :tank 5)
-    (button 16 140 "Town Delivery" :town 6)
-    (button 168 140 "Battle Banner" :battle 7)
-    (button 320 140 "Alpine Rush" :ski 8)
-    (button 16 172 "Platform Hop" :platform 9)
-    (button 168 172 "Puzzle Pop" :puzzle 10)
-    (button 320 172 "Tower Trace" :tower 11)
-    (button 16 204 "Reef Dash" :fish 12)
-    (button 168 204 "Space Run" :space 13)
-    (button 320 204 "Pirate Broadside" :pirate 14)
-    (button 16 236 "Item Sprint" :items 15)
-    (button 168 236 "Particle Swirl" :particle 16)
-    (button 320 236 "Food Rush" :food 17)
-    (button 16 268 "Chef Chaos" :food 18)
-    (button 168 268 "Circuit Keep" :tower 19)
-    (button 320 268 "Fishing Cove" :fish 20)
-    (button 16 300 "Fussball Fever" :sports 21)
-    (button 168 300 "Crown Cavern" :platform 22)
-    (button 320 300 "Tank Siege" :tank 23)
-    (button 16 332 "Asteroid Belt" :space 24)))
+    (text :font :main :value "8 distinct games with full loops" :x 90 :y 48 :size 14 :color "#93c5fd")
+    (button 22 96 "Alpine Rush" "gates, jumps, stamina" :ski 0)
+    (button 246 96 "Asteroid Belt" "thrust, shoot, survive" :space 1)
+    (button 22 158 "Tank Siege" "arena waves, aim fire" :tank 2)
+    (button 246 158 "Circuit Keep" "build towers, hold path" :tower 3)
+    (button 22 220 "Crown Cavern" "run, double-jump, collect" :platform 4)
+    (button 246 220 "Fishing Cove" "cast, hook, reel tension" :fish 5)
+    (button 22 282 "Chef Chaos" "cook orders under pressure" :food 6)
+    (button 246 282 "Fussball Fever" "rods, spin shots, goals" :sports 7)))
