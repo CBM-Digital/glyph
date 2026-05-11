@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace glyph::assets {
 namespace {
@@ -27,9 +28,40 @@ bool hasExtension(const std::string& path, std::initializer_list<std::string_vie
   return false;
 }
 
+const script::Value* mapField(const script::Value& map, StringInterner& interner, std::string_view key) {
+  if (map.kind != script::ValueKind::Map) {
+    return nullptr;
+  }
+  auto found = map.map->find(interner.intern(key));
+  return found == map.map->end() ? nullptr : &found->second;
+}
+
+int sourceRectNumber(const script::Value& value, std::string_view field) {
+  if (value.kind != script::ValueKind::Number || std::floor(value.number) != value.number) {
+    throw script::RuntimeError(std::string(field) + " source rect values must be integers");
+  }
+  return static_cast<int>(value.number);
+}
+
+SourceRect parseSourceRect(const script::Value& value, std::string_view field) {
+  if (value.kind != script::ValueKind::Vector || value.vector->size() != 4) {
+    throw script::RuntimeError(std::string(field) + " source rect must be [x y w h]");
+  }
+  SourceRect rect;
+  rect.x = sourceRectNumber((*value.vector)[0], field);
+  rect.y = sourceRectNumber((*value.vector)[1], field);
+  rect.w = sourceRectNumber((*value.vector)[2], field);
+  rect.h = sourceRectNumber((*value.vector)[3], field);
+  if (rect.x < 0 || rect.y < 0 || rect.w <= 0 || rect.h <= 0) {
+    throw script::RuntimeError(std::string(field) +
+                               " source rect x/y must be non-negative and width/height positive");
+  }
+  return rect;
+}
+
 } // namespace
 
-void AssetManager::loadManifest(const script::Value& manifest, StringInterner&) {
+void AssetManager::loadManifest(const script::Value& manifest, StringInterner& interner) {
   assets_.clear();
   byName_.clear();
 
@@ -41,13 +73,28 @@ void AssetManager::loadManifest(const script::Value& manifest, StringInterner&) 
   }
 
   for (const auto& [name, value] : *manifest.map) {
-    if (value.kind != script::ValueKind::String) {
-      throw script::RuntimeError("asset manifest values must be paths");
-    }
-
     AssetInfo info;
     info.name = name;
-    info.path = value.text;
+    if (value.kind == script::ValueKind::String) {
+      info.path = value.text;
+    } else if (value.kind == script::ValueKind::Map) {
+      const script::Value* path = mapField(value, interner, ":path");
+      if (!path || path->kind != script::ValueKind::String) {
+        throw script::RuntimeError("asset map entries require string :path");
+      }
+      info.path = path->text;
+
+      if (const script::Value* frames = mapField(value, interner, ":frames")) {
+        if (frames->kind != script::ValueKind::Map) {
+          throw script::RuntimeError("asset :frames must be a map");
+        }
+        for (const auto& [frameName, frameRect] : *frames->map) {
+          info.frames[frameName] = parseSourceRect(frameRect, ":frames");
+        }
+      }
+    } else {
+      throw script::RuntimeError("asset manifest values must be paths or asset maps");
+    }
     info.type = inferType(info.path);
 
     const auto handle = AssetHandle{static_cast<u32>(assets_.size() + 1)};
@@ -83,6 +130,15 @@ const AssetInfo* AssetManager::info(StringId name) const {
     return nullptr;
   }
   return &assets_[found->second.id - 1];
+}
+
+const SourceRect* AssetManager::frame(StringId texture, StringId name) const {
+  const AssetInfo* asset = info(texture);
+  if (!asset) {
+    return nullptr;
+  }
+  auto found = asset->frames.find(name);
+  return found == asset->frames.end() ? nullptr : &found->second;
 }
 
 const std::vector<AssetInfo>& AssetManager::assets() const { return assets_; }

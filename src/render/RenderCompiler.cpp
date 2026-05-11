@@ -2,6 +2,7 @@
 
 #include "script/Error.h"
 
+#include <cmath>
 #include <string>
 
 namespace glyph::render {
@@ -161,6 +162,24 @@ DrawCommand RenderCompiler::compileSprite(const script::Value& node) const {
     }
   }
   command.frame = keywordField(node, ":frame", 0);
+  if (const script::Value* source = get(node, ":src")) {
+    if (source->kind == script::ValueKind::Vector) {
+      command.sourceRect = sourceRectField(*source, ":src");
+      command.hasSourceRect = true;
+    } else if (source->kind == script::ValueKind::Keyword) {
+      if (!assets_) {
+        fail("sprite :src named atlas frames require an asset manifest");
+      }
+      const assets::SourceRect* frame = assets_->frame(command.image, source->id);
+      if (!frame) {
+        fail("sprite :src references an unknown atlas frame");
+      }
+      command.sourceRect = *frame;
+      command.hasSourceRect = true;
+    } else {
+      fail("sprite :src must be [x y w h] or an atlas frame keyword");
+    }
+  }
   command.x = numberField(node, ":x");
   command.y = numberField(node, ":y");
   command.scale = numberField(node, ":scale", 1.0);
@@ -235,6 +254,34 @@ double RenderCompiler::numberField(const script::Value& map, std::string_view ke
     fail(std::string("render field must be numeric ") + std::string(key));
   }
   return value->number;
+}
+
+assets::SourceRect RenderCompiler::sourceRectField(const script::Value& value, std::string_view key) const {
+  if (value.kind != script::ValueKind::Vector || value.vector->size() != 4) {
+    fail(std::string("render field must be source rect ") + std::string(key));
+  }
+  assets::SourceRect rect;
+  for (std::size_t i = 0; i < 4; ++i) {
+    const script::Value& item = (*value.vector)[i];
+    if (item.kind != script::ValueKind::Number || std::floor(item.number) != item.number) {
+      fail(std::string("source rect values must be integers ") + std::string(key));
+    }
+    const int number = static_cast<int>(item.number);
+    if (i == 0) {
+      rect.x = number;
+    } else if (i == 1) {
+      rect.y = number;
+    } else if (i == 2) {
+      rect.w = number;
+    } else {
+      rect.h = number;
+    }
+  }
+  if (rect.x < 0 || rect.y < 0 || rect.w <= 0 || rect.h <= 0) {
+    fail(std::string("source rect x/y must be non-negative and width/height positive ") +
+         std::string(key));
+  }
+  return rect;
 }
 
 StringId RenderCompiler::keywordField(const script::Value& map, std::string_view key, StringId fallback) const {

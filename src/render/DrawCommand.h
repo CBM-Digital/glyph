@@ -41,6 +41,8 @@ struct DrawCommand {
   StringId frame = 0;
   StringId font = 0;
   assets::AssetHandle asset {};
+  bool hasSourceRect = false;
+  assets::SourceRect sourceRect {};
 
   std::string color;
   std::string text;

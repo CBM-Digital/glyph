@@ -2,7 +2,8 @@
   :title "Platform Hop"
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/platform-kit.png"
-           :sheet "../assets/kenney/sheets/platform-tilemap.png"
+           :sheet {:path "../assets/kenney/sheets/platform-tilemap.png"
+                   :frames {:grass [0 0 16 16]}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
@@ -87,6 +88,7 @@
       (rail 238)
       (rail 380)
       (circle :x 240 :y 306 :r 38 :color "#26385c")
+      (sprite :image :sheet :src :grass :x 216 :y 286 :scale 3)
       (sprite :image :kit :frame (frame 5) :x (:drop-x state) :y (:drop-y state) :scale 1)
       (sprite :image :kit :frame (frame 2) :x (:bad-x state) :y (:bad-y state) :scale 1)
       (transform :x (:x state) :y 278 :rotation wiggle :scale pulse

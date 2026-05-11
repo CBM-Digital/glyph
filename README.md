@@ -1228,6 +1228,7 @@ Layers are mostly organizational in MVP.
         :x 100
         :y 120
         :frame :idle
+        :src [0 0 32 32]
         :origin :center
         :scale 2
         :rotation 0
@@ -1248,6 +1249,7 @@ Optional:
 
 ```text
 :frame
+:src
 :origin
 :scale
 :rotation
@@ -1255,6 +1257,17 @@ Optional:
 :flip-y
 :color
 ```
+
+`:src` selects an exact source rectangle from the texture as `[x y w h]`. It can also name
+an atlas frame declared on the texture asset:
+
+```lisp
+(sprite :image :tiles :src :grass :x 0 :y 0)
+```
+
+If `:src` is present it takes precedence over `:frame`. The legacy `:frame :f0`
+through `:frame :f7` strip behavior remains supported for existing horizontal
+sprite strips.
 
 ## 10.9 Text
 
@@ -2484,6 +2497,9 @@ Assets are declared in game metadata.
   :size [360 640]
   :assets
   {:block "block.png"
+   :tiles {:path "sheets/tiles.png"
+           :frames {:grass [0 0 16 16]
+                    :coin [32 16 16 16]}}
    :hit "hit.wav"
    :font "font.ttf"}
   :initial initial
@@ -2495,6 +2511,7 @@ Asset manager resolves keywords:
 
 ```lisp
 (sprite :image :block ...)
+(sprite :image :tiles :src :coin ...)
 (sound/play :hit)
 (text :font :font ...)
 ```

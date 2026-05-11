@@ -22,10 +22,18 @@ struct AssetHandle {
   u32 id = 0;
 };
 
+struct SourceRect {
+  int x = 0;
+  int y = 0;
+  int w = 0;
+  int h = 0;
+};
+
 struct AssetInfo {
   StringId name = 0;
   AssetType type = AssetType::Unknown;
   std::string path;
+  std::unordered_map<StringId, SourceRect> frames;
 };
 
 class AssetManager {
@@ -39,6 +47,7 @@ public:
   AssetHandle find(StringId name, AssetType expected) const;
 
   const AssetInfo* info(StringId name) const;
+  const SourceRect* frame(StringId texture, StringId name) const;
   const std::vector<AssetInfo>& assets() const;
 
 private:

@@ -31,6 +31,7 @@ private:
   const script::Value* get(const script::Value& map, std::string_view key) const;
   double numberField(const script::Value& map, std::string_view key) const;
   double numberField(const script::Value& map, std::string_view key, double fallback) const;
+  assets::SourceRect sourceRectField(const script::Value& value, std::string_view key) const;
   StringId keywordField(const script::Value& map, std::string_view key, StringId fallback = 0) const;
   std::string stringField(const script::Value& map, std::string_view key,
                           std::string fallback = "") const;

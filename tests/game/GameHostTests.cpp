@@ -163,6 +163,9 @@ void testAssetsRenderingAndAudioQueue() {
       :title "Asset Audio Test"
       :size [160 120]
       :assets {:hero "assets/hero.png"
+               :tiles {:path "assets/sheets/tiles.png"
+                       :frames {:coin [32 16 12 14]
+                                :door [64 16 24 32]}}
                :main "assets/main.ttf"
                :hit "assets/hit.wav"
                :theme "assets/theme.ogg"}
@@ -184,16 +187,24 @@ void testAssetsRenderingAndAudioQueue() {
     (defn view [state]
       (group
         (sprite :image :hero :x 10 :y 20)
+        (sprite :image :tiles :src :coin :x 40 :y 20)
         (text :font :main :value "Ready" :x 2 :y 3)))
   )");
 
-  require(host.assets().assets().size() == 4, "asset manifest loaded");
+  require(host.assets().assets().size() == 5, "asset manifest loaded");
   const auto hero = host.vm().interner().intern(":hero");
+  const auto tiles = host.vm().interner().intern(":tiles");
+  const auto coin = host.vm().interner().intern(":coin");
   const auto mainFont = host.vm().interner().intern(":main");
   const auto hit = host.vm().interner().intern(":hit");
   const auto theme = host.vm().interner().intern(":theme");
 
   require(host.assets().texture(hero).id != 0, "texture asset resolved");
+  require(host.assets().texture(tiles).id != 0, "atlas texture asset resolved");
+  const auto* coinFrame = host.assets().frame(tiles, coin);
+  require(coinFrame != nullptr, "atlas frame resolved");
+  require(coinFrame->x == 32 && coinFrame->y == 16 && coinFrame->w == 12 && coinFrame->h == 14,
+          "atlas frame rect");
   require(host.assets().font(mainFont).id != 0, "font asset resolved");
   require(host.assets().sound(hit).id != 0, "sound asset resolved");
   require(host.assets().music(theme).id != 0, "music asset resolved");
@@ -213,11 +224,17 @@ void testAssetsRenderingAndAudioQueue() {
           "music/set-volume queues volume");
 
   const auto commands = host.renderView();
-  require(commands.size() == 2, "sprite and text commands");
+  require(commands.size() == 3, "sprite, atlas sprite, and text commands");
   require(commands[0].type == glyph::render::DrawCommandType::Sprite, "sprite command");
   require(commands[0].asset.id == host.assets().texture(hero).id, "sprite texture handle");
-  require(commands[1].type == glyph::render::DrawCommandType::Text, "text command");
-  require(commands[1].asset.id == host.assets().font(mainFont).id, "text font handle");
+  require(commands[1].type == glyph::render::DrawCommandType::Sprite, "atlas sprite command");
+  require(commands[1].asset.id == host.assets().texture(tiles).id, "atlas sprite texture handle");
+  require(commands[1].hasSourceRect, "atlas sprite source rect enabled");
+  require(commands[1].sourceRect.x == 32 && commands[1].sourceRect.y == 16 &&
+              commands[1].sourceRect.w == 12 && commands[1].sourceRect.h == 14,
+          "atlas sprite source rect");
+  require(commands[2].type == glyph::render::DrawCommandType::Text, "text command");
+  require(commands[2].asset.id == host.assets().font(mainFont).id, "text font handle");
 
   host.audio().flush();
   require(host.audio().commands().empty(), "audio flush clears queue");

@@ -872,7 +872,12 @@ void renderCommands(SDLState& sdl, const StringInterner& interner,
         const SDL_FPoint p = apply(current, static_cast<float>(command.x), static_cast<float>(command.y));
         const float scale = static_cast<float>(command.scale);
         SDL_Rect src{0, 0, found->second.w, found->second.h};
-        if (command.frame != 0 && found->second.w >= found->second.h && found->second.h > 0) {
+        if (command.hasSourceRect) {
+          src.x = command.sourceRect.x;
+          src.y = command.sourceRect.y;
+          src.w = command.sourceRect.w;
+          src.h = command.sourceRect.h;
+        } else if (command.frame != 0 && found->second.w >= found->second.h && found->second.h > 0) {
           const int tile = found->second.h;
           const int frames = std::max(1, found->second.w / tile);
           src.x = (frameIndex(interner, command.frame) % frames) * tile;
