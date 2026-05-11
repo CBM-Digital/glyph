@@ -885,8 +885,33 @@ void renderCommands(SDLState& sdl, const StringInterner& interner,
           src.h = tile;
         }
         SDL_FRect dst{p.x, p.y, src.w * scale, src.h * scale};
-        SDL_RenderCopyExF(sdl.renderer, found->second.texture, &src, &dst, command.rotation, nullptr,
-                          SDL_FLIP_NONE);
+        SDL_FPoint pivot{static_cast<float>(command.pivotX * dst.w),
+                         static_cast<float>(command.pivotY * dst.h)};
+        if (command.hasOrigin) {
+          const float originX = static_cast<float>(command.originX * dst.w);
+          const float originY = static_cast<float>(command.originY * dst.h);
+          if (command.hasPivot && std::abs(command.rotation) > 0.0001) {
+            const float radians = static_cast<float>(command.rotation) * pi / 180.0f;
+            const float cs = std::cos(radians);
+            const float sn = std::sin(radians);
+            const float dx = originX - pivot.x;
+            const float dy = originY - pivot.y;
+            dst.x = p.x - pivot.x - (cs * dx - sn * dy);
+            dst.y = p.y - pivot.y - (sn * dx + cs * dy);
+          } else {
+            dst.x = p.x - originX;
+            dst.y = p.y - originY;
+          }
+        }
+        SDL_RendererFlip flip = SDL_FLIP_NONE;
+        if (command.flipX) {
+          flip = static_cast<SDL_RendererFlip>(flip | SDL_FLIP_HORIZONTAL);
+        }
+        if (command.flipY) {
+          flip = static_cast<SDL_RendererFlip>(flip | SDL_FLIP_VERTICAL);
+        }
+        SDL_RenderCopyExF(sdl.renderer, found->second.texture, &src, &dst, command.rotation, &pivot,
+                          flip);
       }
       break;
     }

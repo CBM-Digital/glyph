@@ -80,7 +80,8 @@ void testCameraTransformAndSpriteCommands() {
   const auto tree = vm.evalSource(R"(
     (camera :x 1 :y 2 :zoom 3
       (transform :x 4 :y 5 :rotation 6 :scale 7
-        (sprite :image :hero :x 8 :y 9 :frame :idle :src [16 32 24 40] :scale 2)))
+        (sprite :image :hero :x 8 :y 9 :frame :idle :src [16 32 24 40]
+                :scale 2 :origin :center :pivot [0.25 0.75] :flip-x true :flip-y false)))
   )");
 
   glyph::render::RenderCompiler compiler(vm.interner());
@@ -100,6 +101,14 @@ void testCameraTransformAndSpriteCommands() {
   require(commands[2].sourceRect.h == 40, "sprite source rect h");
   requireNumber(commands[2].x, 8.0, "sprite x");
   requireNumber(commands[2].scale, 2.0, "sprite scale");
+  require(commands[2].hasOrigin, "sprite origin enabled");
+  requireNumber(commands[2].originX, 0.5, "sprite origin x");
+  requireNumber(commands[2].originY, 0.5, "sprite origin y");
+  require(commands[2].hasPivot, "sprite pivot enabled");
+  requireNumber(commands[2].pivotX, 0.25, "sprite pivot x");
+  requireNumber(commands[2].pivotY, 0.75, "sprite pivot y");
+  require(commands[2].flipX, "sprite flip x");
+  require(!commands[2].flipY, "sprite flip y");
   require(commands[3].type == glyph::render::DrawCommandType::PopTransform, "pop transform");
   require(commands[4].type == glyph::render::DrawCommandType::PopCamera, "pop camera");
 }

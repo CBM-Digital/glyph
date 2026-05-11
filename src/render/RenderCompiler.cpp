@@ -184,6 +184,20 @@ DrawCommand RenderCompiler::compileSprite(const script::Value& node) const {
   command.y = numberField(node, ":y");
   command.scale = numberField(node, ":scale", 1.0);
   command.rotation = numberField(node, ":rotation", 0.0);
+  if (get(node, ":origin")) {
+    const auto origin = anchorField(node, ":origin", {0.0, 0.0});
+    command.originX = origin.first;
+    command.originY = origin.second;
+    command.hasOrigin = true;
+  }
+  if (get(node, ":pivot")) {
+    const auto pivot = anchorField(node, ":pivot", {0.5, 0.5});
+    command.pivotX = pivot.first;
+    command.pivotY = pivot.second;
+    command.hasPivot = true;
+  }
+  command.flipX = boolField(node, ":flip-x", false);
+  command.flipY = boolField(node, ":flip-y", false);
   command.color = stringField(node, ":color", "#fff");
   return command;
 }
@@ -254,6 +268,61 @@ double RenderCompiler::numberField(const script::Value& map, std::string_view ke
     fail(std::string("render field must be numeric ") + std::string(key));
   }
   return value->number;
+}
+
+bool RenderCompiler::boolField(const script::Value& map, std::string_view key, bool fallback) const {
+  const script::Value* value = get(map, key);
+  if (!value) {
+    return fallback;
+  }
+  if (value->kind != script::ValueKind::Bool) {
+    fail(std::string("render field must be boolean ") + std::string(key));
+  }
+  return value->boolean;
+}
+
+std::pair<double, double> RenderCompiler::anchorField(const script::Value& map, std::string_view key,
+                                                      std::pair<double, double> fallback) const {
+  const script::Value* value = get(map, key);
+  if (!value) {
+    return fallback;
+  }
+  if (value->kind == script::ValueKind::Vector && value->vector->size() == 2 &&
+      (*value->vector)[0].kind == script::ValueKind::Number &&
+      (*value->vector)[1].kind == script::ValueKind::Number) {
+    return {(*value->vector)[0].number, (*value->vector)[1].number};
+  }
+  if (value->kind == script::ValueKind::Keyword) {
+    const auto name = interner_.resolve(value->id);
+    if (name == ":top-left") {
+      return {0.0, 0.0};
+    }
+    if (name == ":top" || name == ":top-center") {
+      return {0.5, 0.0};
+    }
+    if (name == ":top-right") {
+      return {1.0, 0.0};
+    }
+    if (name == ":left" || name == ":center-left") {
+      return {0.0, 0.5};
+    }
+    if (name == ":center") {
+      return {0.5, 0.5};
+    }
+    if (name == ":right" || name == ":center-right") {
+      return {1.0, 0.5};
+    }
+    if (name == ":bottom-left") {
+      return {0.0, 1.0};
+    }
+    if (name == ":bottom" || name == ":bottom-center") {
+      return {0.5, 1.0};
+    }
+    if (name == ":bottom-right") {
+      return {1.0, 1.0};
+    }
+  }
+  fail(std::string("render field must be anchor keyword or [x y] ") + std::string(key));
 }
 
 assets::SourceRect RenderCompiler::sourceRectField(const script::Value& value, std::string_view key) const {

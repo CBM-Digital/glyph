@@ -6,6 +6,7 @@
 #include "script/Value.h"
 
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace glyph::render {
@@ -31,6 +32,9 @@ private:
   const script::Value* get(const script::Value& map, std::string_view key) const;
   double numberField(const script::Value& map, std::string_view key) const;
   double numberField(const script::Value& map, std::string_view key, double fallback) const;
+  bool boolField(const script::Value& map, std::string_view key, bool fallback) const;
+  std::pair<double, double> anchorField(const script::Value& map, std::string_view key,
+                                        std::pair<double, double> fallback) const;
   assets::SourceRect sourceRectField(const script::Value& value, std::string_view key) const;
   StringId keywordField(const script::Value& map, std::string_view key, StringId fallback = 0) const;
   std::string stringField(const script::Value& map, std::string_view key,
