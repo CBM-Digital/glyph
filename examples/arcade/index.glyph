@@ -70,6 +70,7 @@
       (hit? 168 268 144 28) (open "circuit-keep/game.glyph" next)
       (hit? 320 268 144 28) (open "fishing-cove/game.glyph" next)
       (hit? 16 300 144 28) (open "fussball-fever/game.glyph" next)
+      (hit? 168 300 144 28) (open "crown-cavern/game.glyph" next)
       else next)))
 
 (defn icon-frame [i]
@@ -127,4 +128,5 @@
     (button 16 268 "Chef Chaos" :food 18)
     (button 168 268 "Circuit Keep" :tower 19)
     (button 320 268 "Fishing Cove" :fish 20)
-    (button 16 300 "Fussball Fever" :sports 21)))
+    (button 16 300 "Fussball Fever" :sports 21)
+    (button 168 300 "Crown Cavern" :platform 22)))

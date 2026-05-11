@@ -1,0 +1,594 @@
+(game crown-cavern
+  :title "Crown Cavern"
+  :size [480 360]
+  :assets {:kit "../assets/kenney/strips/platform-kit.png"
+           :sheet "../assets/kenney/sheets/platform-tilemap.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"
+           :theme "../assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def world-w 1680)
+(def player-w 30)
+(def player-h 42)
+(def gravity 980)
+(def max-fall 560)
+(def run-speed 228)
+(def jump-speed -405)
+(def double-speed -355)
+(def gem-total 15)
+
+(def platform-keys [:p0 :p1 :p2 :p3 :p4 :p5 :p6 :p7 :p8 :p9 :p10 :p11 :p12])
+(def gem-keys [:g0 :g1 :g2 :g3 :g4 :g5 :g6 :g7 :g8 :g9 :g10 :g11 :g12 :g13 :g14])
+(def hazard-keys [:h0 :h1 :h2 :h3 :h4 :h5])
+(def enemy-keys [:e0 :e1 :e2 :e3])
+
+(def initial
+  {:t 0
+   :x 42
+   :y 276
+   :vx 0
+   :vy 0
+   :dir 1
+   :ground true
+   :jumps 1
+   :coyote 0
+   :checkpoint 0
+   :health 3
+   :score 0
+   :collected 0
+   :phase :play
+   :time 0
+   :message "Grab gems, stomp bugs, reach the crown"
+   :message-time 3.2
+   :flash 0
+   :invuln 0
+   :shake 0
+   :music false
+   :gems {:g0 true :g1 true :g2 true :g3 true :g4 true
+          :g5 true :g6 true :g7 true :g8 true :g9 true
+          :g10 true :g11 true :g12 true :g13 true :g14 true}
+   :enemies {:e0 true :e1 true :e2 true :e3 true}})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (pointer-pressed?)))
+
+(defn jump? []
+  (or (pressed? :tap) (pointer-pressed?)))
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.085)
+      (assoc state :music true))))
+
+(defn platform-x [p]
+  (case p
+    :p0 0
+    :p1 184
+    :p2 448
+    :p3 642
+    :p4 704
+    :p5 842
+    :p6 1006
+    :p7 1128
+    :p8 1210
+    :p9 1358
+    :p10 1480
+    :p11 742
+    else 1580))
+
+(defn platform-y [p]
+  (case p
+    :p0 318
+    :p1 258
+    :p2 286
+    :p3 248
+    :p4 166
+    :p5 218
+    :p6 270
+    :p7 194
+    :p8 232
+    :p9 288
+    :p10 248
+    :p11 322
+    else 306))
+
+(defn platform-w [p]
+  (case p
+    :p0 380
+    :p1 130
+    :p2 146
+    :p3 142
+    :p4 96
+    :p5 122
+    :p6 160
+    :p7 112
+    :p8 130
+    :p9 116
+    :p10 150
+    :p11 104
+    else 100))
+
+(defn platform-h [p]
+  (case p
+    :p4 18
+    :p7 18
+    else 28))
+
+(defn gem-x [g]
+  (case g
+    :g0 218
+    :g1 274
+    :g2 500
+    :g3 682
+    :g4 742
+    :g5 735
+    :g6 884
+    :g7 1044
+    :g8 1136
+    :g9 1248
+    :g10 1304
+    :g11 1412
+    :g12 1514
+    :g13 1598
+    else 790))
+
+(defn gem-y [g]
+  (case g
+    :g0 218
+    :g1 218
+    :g2 246
+    :g3 208
+    :g4 126
+    :g5 126
+    :g6 178
+    :g7 230
+    :g8 154
+    :g9 190
+    :g10 190
+    :g11 248
+    :g12 208
+    :g13 266
+    else 288))
+
+(defn hazard-x [h]
+  (case h
+    :h0 386
+    :h1 596
+    :h2 964
+    :h3 1170
+    :h4 1338
+    else 1472))
+
+(defn hazard-y [h]
+  (case h
+    :h0 334
+    :h1 326
+    :h2 320
+    :h3 320
+    :h4 320
+    else 320))
+
+(defn hazard-w [h]
+  (case h
+    :h0 56
+    :h1 48
+    :h2 42
+    :h3 38
+    :h4 42
+    else 42))
+
+(defn checkpoint-x [n]
+  (case n
+    1 650
+    2 1218
+    else 42))
+
+(defn checkpoint-y [n]
+  (case n
+    1 206
+    2 190
+    else 276))
+
+(defn enemy-base-x [e]
+  (case e
+    :e0 515
+    :e1 910
+    :e2 1286
+    else 1532))
+
+(defn enemy-y [e]
+  (case e
+    :e0 258
+    :e1 190
+    :e2 204
+    else 220))
+
+(defn enemy-amp [e]
+  (case e
+    :e0 34
+    :e1 44
+    :e2 34
+    else 38))
+
+(defn enemy-speed [e]
+  (case e
+    :e0 1.8
+    :e1 2.2
+    :e2 2.0
+    else 2.35))
+
+(defn enemy-x [state e]
+  (+ (enemy-base-x e) (* (enemy-amp e) (sin (+ (* (:t state) (enemy-speed e)) (enemy-base-x e))))))
+
+(defn enemy-active? [state e]
+  (get-in state [:enemies e] false))
+
+(defn player-box [state]
+  (rect-box (+ (:x state) 9) (:y state) player-w player-h))
+
+(defn gem-box [g]
+  (rect-box (- (gem-x g) 10) (- (gem-y g) 10) 20 20))
+
+(defn hazard-box [h]
+  (rect-box (hazard-x h) (hazard-y h) (hazard-w h) 22))
+
+(defn enemy-box [state e]
+  (rect-box (- (enemy-x state e) 18) (- (enemy-y e) 16) 36 32))
+
+(defn goal-box []
+  (rect-box 1590 228 54 76))
+
+(defn gem-active? [state g]
+  (get-in state [:gems g] false))
+
+(defn gem-touch? [state g]
+  (and (gem-active? state g)
+       (overlap? (player-box state) (gem-box g))))
+
+(defn hazard-touch? [state h]
+  (overlap? (player-box state) (hazard-box h)))
+
+(defn enemy-touch? [state e]
+  (and (enemy-active? state e)
+       (overlap? (player-box state) (enemy-box state e))))
+
+(defn stomp? [state e]
+  (and (enemy-touch? state e)
+       (> (:vy state) 40)
+       (< (+ (:y state) player-h) (+ (enemy-y e) 10))))
+
+(defn platform-overlap-x? [state p]
+  (and (> (+ (:x state) 39) (platform-x p))
+       (< (+ (:x state) 9) (+ (platform-x p) (platform-w p)))))
+
+(defn can-land? [old new p]
+  (let [old-bottom (+ (:y old) player-h)
+        new-bottom (+ (:y new) player-h)
+        top (platform-y p)]
+    (and (>= (:vy new) 0)
+         (platform-overlap-x? new p)
+         (<= old-bottom (+ top 6))
+         (>= new-bottom top))))
+
+(defn land-platform [old new]
+  (find platform-keys (fn [p] (can-land? old new p))))
+
+(defn resolve-platforms [old new dt]
+  (let [landed (land-platform old new)]
+    (if landed
+      (assoc new
+        :y (- (platform-y landed) player-h)
+        :vy 0
+        :ground true
+        :jumps 1
+        :coyote 0.12)
+      (assoc new
+        :ground false
+        :coyote (max 0 (- (:coyote old) dt))))))
+
+(defn apply-jump [state]
+  (cond
+    (and (jump?) (or (:ground state) (> (:coyote state) 0)))
+      (do
+        (sound/play :blip :volume 0.52 :pitch 1.06)
+        (assoc state :vy jump-speed :ground false :coyote 0 :jumps 1 :message-time 0))
+    (and (jump?) (> (:jumps state) 0))
+      (do
+        (sound/play :blip :volume 0.46 :pitch 1.32)
+        (assoc state :vy double-speed :jumps 0 :flash 0.22 :message-time 0))
+    else state))
+
+(defn advance-physics [dt state]
+  (let [jumped (apply-jump state)
+        ax (axis :move-x)
+        vx (* ax run-speed)
+        dir (cond
+              (> ax 0.12) 1
+              (< ax -0.12) -1
+              else (:dir jumped))
+        vy (clamp (+ (:vy jumped) (* gravity dt)) -520 max-fall)
+        x (clamp (+ (:x jumped) (* vx dt)) 8 (- world-w 44))
+        y (+ (:y jumped) (* vy dt))
+        moved (assoc jumped
+                :x x
+                :y y
+                :vx vx
+                :vy vy
+                :dir dir)]
+    (resolve-platforms jumped moved dt)))
+
+(defn collect-gem [state]
+  (let [gem (find gem-keys (fn [g] (gem-touch? state g)))]
+    (if gem
+      (do
+        (sound/play :blip :volume 0.74 :pitch 1.18)
+        (assoc-in
+          (assoc state
+            :score (+ (:score state) 10)
+            :collected (+ (:collected state) 1)
+            :flash 0.32
+            :message "Gem pocketed"
+            :message-time 1.1)
+          [:gems gem]
+          false))
+      state)))
+
+(defn checkpoint-step [state]
+  (cond
+    (and (< (:checkpoint state) 1) (> (:x state) 620))
+      (do
+        (sound/play :blip :volume 0.58 :pitch 0.86)
+        (assoc state :checkpoint 1 :message "Checkpoint lit" :message-time 1.6))
+    (and (< (:checkpoint state) 2) (> (:x state) 1188))
+      (do
+        (sound/play :blip :volume 0.62 :pitch 0.9)
+        (assoc state :checkpoint 2 :message "Final checkpoint" :message-time 1.6))
+    else state))
+
+(defn respawn [state]
+  (let [next-health (- (:health state) 1)]
+    (if (<= next-health 0)
+      (do
+        (sound/play :pop :volume 0.82 :pitch 0.74)
+        (assoc state :health 0 :phase :over :flash 1 :message "Cavern run ended" :message-time 4))
+      (do
+        (sound/play :pop :volume 0.72 :pitch 0.82)
+        (assoc state
+          :health next-health
+          :x (checkpoint-x (:checkpoint state))
+          :y (checkpoint-y (:checkpoint state))
+          :vx 0
+          :vy 0
+          :ground true
+          :jumps 1
+          :invuln 1.35
+          :shake 0.28
+          :flash 0.9
+          :message "Ouch! Back to the banner"
+          :message-time 1.8)))))
+
+(defn danger-step [state]
+  (let [stomped (find enemy-keys (fn [e] (stomp? state e)))
+        enemy-hit (find enemy-keys (fn [e] (enemy-touch? state e)))
+        hazard-hit (any hazard-keys (fn [h] (hazard-touch? state h)))]
+    (cond
+      stomped
+        (do
+          (sound/play :pop :volume 0.45 :pitch 1.35)
+          (assoc-in
+            (assoc state
+              :vy -285
+              :score (+ (:score state) 25)
+              :flash 0.38
+              :message "Bug bounced"
+              :message-time 1.0)
+            [:enemies stomped]
+            false))
+      (and (<= (:invuln state) 0) (or enemy-hit hazard-hit (> (:y state) 382)))
+        (respawn state)
+      else state)))
+
+(defn finish-step [state]
+  (if (overlap? (player-box state) (goal-box))
+    (let [bonus (max 0 (- 240 (floor (:time state))))]
+      (do
+        (sound/play :blip :volume 0.9 :pitch 0.78)
+        (assoc state
+          :phase :win
+          :score (+ (:score state) bonus)
+          :flash 1
+          :message (str "Crown claimed! Time bonus +" bonus)
+          :message-time 8)))
+    state))
+
+(defn play-step [dt state]
+  (let [timed (assoc state
+                :t (+ (:t state) dt)
+                :time (+ (:time state) dt)
+                :flash (max 0 (- (:flash state) (* dt 2.8)))
+                :invuln (max 0 (- (:invuln state) dt))
+                :shake (max 0 (- (:shake state) (* dt 1.8)))
+                :message-time (max 0 (- (:message-time state) dt))
+                :coyote (if (:ground state) 0.12 (max 0 (- (:coyote state) dt))))
+        moved (advance-physics dt timed)
+        checked (checkpoint-step moved)
+        collected (collect-gem checked)
+        dangered (danger-step collected)]
+    (finish-step dangered)))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (not= (:phase state) :play) (restart?)) (assoc initial :music (:music state))
+    (= (:phase state) :play) (play-step dt (arm-music state))
+    else state))
+
+(defn camera-x [state]
+  (clamp (- (:x state) 216) 0 (- world-w 480)))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#223047")
+    (text :font :main :value "Back" :x 28 :y 20 :size 13 :color "#f8fafc")))
+
+(defn draw-platform [p]
+  (group
+    (rect :x (platform-x p) :y (platform-y p) :w (platform-w p) :h (platform-h p) :color "#233f2f")
+    (rect :x (platform-x p) :y (platform-y p) :w (platform-w p) :h 6 :color "#7ecb72")
+    (rect :x (+ (platform-x p) 4) :y (+ (platform-y p) 8) :w (- (platform-w p) 8) :h 3 :color "#38553c")))
+
+(defn draw-gem [state g]
+  (if (gem-active? state g)
+    (transform :x (gem-x g) :y (+ (gem-y g) (* 3 (sin (+ (* (:t state) 5) (gem-x g))))) :rotation (* 60 (:t state))
+      (circle :x 0 :y 0 :r 13 :color "#1d3557")
+      (sprite :image :kit :frame (frame 5) :x -22 :y -22 :scale 0.92))
+    empty))
+
+(defn draw-hazard [h]
+  (group
+    (rect :x (hazard-x h) :y (+ (hazard-y h) 12) :w (hazard-w h) :h 12 :color "#7f1d1d")
+    (for [i (range (ceil (/ (hazard-w h) 16)))]
+      (transform :x (+ (hazard-x h) (* i 16)) :y (hazard-y h)
+        (rect :x 2 :y 10 :w 12 :h 12 :color "#ef4444")
+        (line :x1 8 :y1 0 :x2 2 :y2 18 :width 4 :color "#fca5a5")
+        (line :x1 8 :y1 0 :x2 14 :y2 18 :width 4 :color "#fca5a5")))))
+
+(defn draw-enemy [state e]
+  (if (enemy-active? state e)
+    (let [x (enemy-x state e)
+          y (enemy-y e)
+          bob (* 3 (sin (* (:t state) 8)))]
+      (group
+        (circle :x x :y (+ y bob) :r 18 :color "#4c1d95")
+        (sprite :image :kit :frame (frame 2) :x (- x 24) :y (- (+ y bob) 24) :scale 1 :flip-x (< (sin (* (:t state) (enemy-speed e))) 0))
+        (circle :x (- x 8) :y (- (+ y bob) 4) :r 3 :color "#fef3c7")
+        (circle :x (+ x 8) :y (- (+ y bob) 4) :r 3 :color "#fef3c7")))
+    empty))
+
+(defn checkpoint-node [state n]
+  (let [active (>= (:checkpoint state) n)
+        x (checkpoint-x n)
+        y (+ (checkpoint-y n) 3)]
+    (group
+      (rect :x (+ x 8) :y (- y 46) :w 5 :h 46 :color "#4b5563")
+      (rect :x (+ x 13) :y (- y 44) :w 28 :h 18 :color (if active "#facc15" "#64748b"))
+      (if active
+        (sprite :image :kit :frame (frame 5) :x (+ x 18) :y (- y 50) :scale 0.42)
+        empty))))
+
+(defn player-frame [state]
+  (cond
+    (> (:invuln state) 0) (frame 6)
+    (not (:ground state)) (frame 1)
+    (> (abs (:vx state)) 12) (frame (floor (* (:t state) 12)))
+    else (frame 0)))
+
+(defn draw-player [state]
+  (let [blink (and (> (:invuln state) 0) (= (mod (floor (* (:t state) 20)) 2) 0))
+        squash (if (:ground state) (+ 1 (* (:flash state) 0.08)) 1)]
+    (if blink
+      empty
+      (transform :x (:x state) :y (:y state) :scale squash
+        (sprite :image :kit :frame (player-frame state) :x 0 :y -4 :scale 1 :flip-x (< (:dir state) 0))))))
+
+(defn draw-goal [state]
+  (group
+    (rect :x 1598 :y 246 :w 38 :h 42 :color "#334155")
+    (rect :x 1604 :y 238 :w 26 :h 12 :color "#facc15")
+    (sprite :image :kit :frame (frame 7) :x 1588 :y 208 :scale 1.1)
+    (circle :x 1617 :y 235 :r (+ 14 (* 3 (sin (* (:t state) 4)))) :color "#78350f")))
+
+(defn cave-bg [state]
+  (group
+    (rect :x 0 :y 0 :w world-w :h 360 :color "#101827")
+    (for [i (range 18)]
+      (circle :x (+ 34 (* i 91)) :y (+ 44 (* (mod i 5) 24)) :r (+ 1 (mod i 3)) :color "#dbeafe"))
+    (rect :x 0 :y 306 :w world-w :h 54 :color "#10251d")
+    (sprite :image :sheet :x 84 :y 76 :scale 0.44)
+    (sprite :image :sheet :x 604 :y 48 :scale 0.36)
+    (sprite :image :sheet :x 1136 :y 62 :scale 0.42)
+    (sprite :image :sheet :x 1422 :y 78 :scale 0.34)
+    (line :x1 0 :y1 304 :x2 world-w :y2 304 :width 4 :color "#4ade80")))
+
+(defn hud-heart [i state]
+  (sprite :image :kit :frame (if (> (:health state) i) (frame 5) (frame 3)) :x (+ 374 (* i 26)) :y 16 :scale 0.48))
+
+(defn hud-message [state]
+  (if (> (:message-time state) 0)
+    (text :font :main :value (:message state) :x 98 :y 50 :size 12 :color "#fde68a")
+    empty))
+
+(defn progress-node [state]
+  (let [w (* 122 (/ (:x state) (- world-w 44)))]
+    (group
+      (rect :x 220 :y 24 :w 122 :h 5 :color "#334155")
+      (rect :x 220 :y 24 :w w :h 5 :color "#60a5fa"))))
+
+(defn result-panel [state]
+  (cond
+    (= (:phase state) :win)
+      (group
+        (rect :x 72 :y 86 :w 336 :h 176 :color "#111827")
+        (rect :x 86 :y 100 :w 308 :h 148 :color "#203047")
+        (text :font :main :value "Crown Claimed" :x 134 :y 116 :size 28 :color "#fef3c7")
+        (text :font :main :value (str "Score " (:score state) "   Gems " (:collected state) "/" gem-total) :x 138 :y 158 :size 16 :color "#bfdbfe")
+        (text :font :main :value (str "Time " (floor (:time state)) "s") :x 196 :y 186 :size 16 :color "#bbf7d0")
+        (text :font :main :value "Tap to run again" :x 174 :y 220 :size 17 :color "#f8fafc"))
+    (= (:phase state) :over)
+      (group
+        (rect :x 72 :y 92 :w 336 :h 162 :color "#111827")
+        (rect :x 86 :y 106 :w 308 :h 134 :color "#3b1720")
+        (text :font :main :value "Run Over" :x 174 :y 124 :size 30 :color "#fee2e2")
+        (text :font :main :value (str "Score " (:score state) "   Gems " (:collected state) "/" gem-total) :x 138 :y 168 :size 16 :color "#fef3c7")
+        (text :font :main :value "Tap to retry" :x 184 :y 210 :size 18 :color "#f8fafc"))
+    else empty))
+
+(defn view [state]
+  (let [jitter (* (:shake state) 12 (sin (* (:t state) 46)))]
+    (group
+      (clear (if (> (:flash state) 0.65) "#3b1720" "#101827"))
+      (camera :x (camera-x state) :y 0 :zoom 1
+        (transform :x jitter :y 0
+          (cave-bg state)
+          (for [p platform-keys] (draw-platform p))
+          (for [h hazard-keys] (draw-hazard h))
+          (for [g gem-keys] (draw-gem state g))
+          (for [e enemy-keys] (draw-enemy state e))
+          (checkpoint-node state 1)
+          (checkpoint-node state 2)
+          (draw-goal state)
+          (draw-player state)))
+      (rect :x 0 :y 0 :w 480 :h 72 :color "#162235")
+      (back-button)
+      (text :font :main :value "Crown Cavern" :x 98 :y 16 :size 23 :color "#f8fafc")
+      (hud-message state)
+      (text :font :main :value (str "Score " (:score state)) :x 98 :y 38 :size 12 :color "#93c5fd")
+      (text :font :main :value (str "Gems " (:collected state) "/" gem-total) :x 374 :y 46 :size 12 :color "#fef3c7")
+      (text :font :main :value (str (floor (:time state)) "s") :x 306 :y 43 :size 12 :color "#c4b5fd")
+      (progress-node state)
+      (hud-heart 0 state)
+      (hud-heart 1 state)
+      (hud-heart 2 state)
+      (text :font :main :value "A/D or arrows move   Space/tap jump twice" :x 116 :y 338 :size 13 :color "#e5e7eb")
+      (result-panel state))))
