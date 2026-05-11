@@ -71,6 +71,8 @@
       (hit? 320 268 144 28) (open "fishing-cove/game.glyph" next)
       (hit? 16 300 144 28) (open "fussball-fever/game.glyph" next)
       (hit? 168 300 144 28) (open "crown-cavern/game.glyph" next)
+      (hit? 320 300 144 28) (open "tank-siege/game.glyph" next)
+      (hit? 16 332 144 28) (open "asteroid-belt/game.glyph" next)
       else next)))
 
 (defn icon-frame [i]
@@ -115,7 +117,7 @@
     (button 320 108 "Tank Run" :tank 5)
     (button 16 140 "Town Delivery" :town 6)
     (button 168 140 "Battle Banner" :battle 7)
-    (button 320 140 "Ski Slalom" :ski 8)
+    (button 320 140 "Alpine Rush" :ski 8)
     (button 16 172 "Platform Hop" :platform 9)
     (button 168 172 "Puzzle Pop" :puzzle 10)
     (button 320 172 "Tower Trace" :tower 11)
@@ -129,4 +131,6 @@
     (button 168 268 "Circuit Keep" :tower 19)
     (button 320 268 "Fishing Cove" :fish 20)
     (button 16 300 "Fussball Fever" :sports 21)
-    (button 168 300 "Crown Cavern" :platform 22)))
+    (button 168 300 "Crown Cavern" :platform 22)
+    (button 320 300 "Tank Siege" :tank 23)
+    (button 16 332 "Asteroid Belt" :space 24)))

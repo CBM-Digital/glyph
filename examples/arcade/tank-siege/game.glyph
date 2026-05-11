@@ -1,0 +1,749 @@
+(game tank-siege
+  :title "Tank Siege"
+  :size [480 360]
+  :assets {:tank "../assets/kenney/strips/tank-kit.png"
+           :terrain "../assets/kenney/sheets/tanks-terrain.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"
+           :theme "../assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def arena-w 360)
+(def enemy-keys [:e0 :e1 :e2 :e3 :e4 :e5 :e6 :e7 :e8])
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn blank-enemy []
+  {:alive false :x 0 :y 0 :hp 0 :max 0 :speed 0 :kind :scout :cool 0})
+
+(def initial
+  {:t 0
+   :phase :prep
+   :music false
+   :x 180
+   :y 238
+   :dir -90
+   :hp 100
+   :max-hp 100
+   :invuln 0
+   :cool 0
+   :wave 0
+   :wave-size 0
+   :spawned 0
+   :spawn 0
+   :score 0
+   :combo 1
+   :combo-t 0
+   :power :none
+   :power-t 0
+   :shake 0
+   :message 0
+   :repair-active true
+   :repair-x 260
+   :repair-y 142
+   :boost-active true
+   :boost-x 92
+   :boost-y 284
+   :bullets []
+   :shots []
+   :sparks []
+   :enemies {:e0 (blank-enemy)
+             :e1 (blank-enemy)
+             :e2 (blank-enemy)
+             :e3 (blank-enemy)
+             :e4 (blank-enemy)
+             :e5 (blank-enemy)
+             :e6 (blank-enemy)
+             :e7 (blank-enemy)
+             :e8 (blank-enemy)}})
+
+(defn button-hit? [x y w h]
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box x y w h))))
+
+(defn back? [] (button-hit? 12 12 66 28))
+(defn start? [] (button-hit? 374 258 90 30))
+(defn retry? [] (button-hit? 374 298 90 30))
+
+(defn fresh-state [] initial)
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.09)
+      (assoc state :music true))))
+
+(defn player-box [state]
+  (circle-box (:x state) (:y state) 18))
+
+(defn enemy [state e]
+  (get-in state [:enemies e]))
+
+(defn enemy-alive? [state e]
+  (and (:alive (enemy state e))
+       (> (:hp (enemy state e)) 0)))
+
+(defn inactive-enemy? [state e]
+  (not (enemy-alive? state e)))
+
+(defn enemy-radius [unit]
+  (case (:kind unit)
+    :heavy 19
+    :mortar 17
+    else 15))
+
+(defn enemy-box [state e]
+  (let [unit (enemy state e)]
+    (circle-box (:x unit) (:y unit) (enemy-radius unit))))
+
+(defn move-dir [state mx my]
+  (cond
+    (and (= mx 0) (= my 0)) (:dir state)
+    (> (abs mx) (abs my)) (if (> mx 0) 0 180)
+    (> my 0) 90
+    else -90))
+
+(defn aim-dir [state]
+  (if (and (pointer-held?) (< (pointer-x) arena-w))
+    (rad->deg (angle-to (:x state) (:y state) (pointer-x) (pointer-y)))
+    (:dir state)))
+
+(defn sprite-rot [angle]
+  (+ angle 90))
+
+(defn bullet-speed [state]
+  (case (:power state)
+    :rapid 336
+    :shell 248
+    else 292))
+
+(defn fire-delay [state]
+  (case (:power state)
+    :rapid 0.15
+    :shell 0.48
+    else 0.29))
+
+(defn player-damage [state]
+  (case (:power state)
+    :shell 43
+    :rapid 15
+    else 26))
+
+(defn fire-input? []
+  (or (held? :confirm)
+      (and (pointer-held?) (< (pointer-x) arena-w))))
+
+(defn make-bullet [state]
+  (let [angle (deg->rad (aim-dir state))
+        speed (bullet-speed state)]
+    {:x (+ (:x state) (* (cos angle) 22))
+     :y (+ (:y state) (* (sin angle) 22))
+     :vx (* (cos angle) speed)
+     :vy (* (sin angle) speed)
+     :life 1.05
+     :dmg (player-damage state)
+     :shell (= (:power state) :shell)}))
+
+(defn maybe-fire [state]
+  (if (and (= (:phase state) :playing)
+           (<= (:cool state) 0)
+           (fire-input?))
+    (do
+      (sound/play :blip :volume 0.45 :pitch (if (= (:power state) :shell) 0.75 1.2))
+      (assoc state
+        :cool (fire-delay state)
+        :dir (aim-dir state)
+        :bullets (push (:bullets state) (make-bullet state))))
+    state))
+
+(defn move-player [dt state]
+  (let [mx (axis :move-x)
+        my (axis :move-y)
+        moving (or (not= mx 0) (not= my 0))
+        speed (if (= (:power state) :rapid) 132 118)
+        x (clamp (+ (:x state) (* mx speed dt)) 24 334)
+        y (clamp (+ (:y state) (* my speed dt)) 62 332)
+        dir (move-dir state mx my)]
+    (assoc state :x x :y y :dir dir)))
+
+(defn spawn-kind [state]
+  (cond
+    (= (mod (:spawned state) 6) 5) :heavy
+    (= (mod (:spawned state) 4) 3) :mortar
+    else :scout))
+
+(defn enemy-hp [kind wave]
+  (case kind
+    :heavy (+ 62 (* wave 12))
+    :mortar (+ 38 (* wave 8))
+    else (+ 28 (* wave 6))))
+
+(defn enemy-speed [kind wave]
+  (+ (case kind
+       :heavy 28
+       :mortar 31
+       else 47)
+     (* wave 1.8)))
+
+(defn enemy-cool [kind]
+  (case kind
+    :heavy 1.45
+    :mortar 1.1
+    else 1.85))
+
+(defn enemy-reward [kind]
+  (case kind
+    :heavy 85
+    :mortar 60
+    else 40))
+
+(defn spawn-x [n]
+  (case (mod n 4)
+    0 22
+    1 338
+    2 (rand-range 48 312)
+    else (rand-range 48 312)))
+
+(defn spawn-y [n]
+  (case (mod n 4)
+    0 (rand-range 72 318)
+    1 (rand-range 72 318)
+    2 60
+    else 332))
+
+(defn make-enemy [state kind]
+  (let [hp (enemy-hp kind (:wave state))
+        n (:spawned state)]
+    {:alive true
+     :x (spawn-x n)
+     :y (spawn-y n)
+     :hp hp
+     :max hp
+     :speed (enemy-speed kind (:wave state))
+     :kind kind
+     :cool (enemy-cool kind)}))
+
+(defn spawn-delay [wave]
+  (max 0.42 (- 1.08 (* wave 0.055))))
+
+(defn spawn-one [state]
+  (let [slot (find enemy-keys (fn [e] (inactive-enemy? state e)))]
+    (if slot
+      (let [kind (spawn-kind state)]
+        (assoc-in
+          (assoc state
+            :spawned (+ (:spawned state) 1)
+            :spawn (spawn-delay (:wave state)))
+          [:enemies slot]
+          (make-enemy state kind)))
+      state)))
+
+(defn update-spawn [dt state]
+  (if (and (= (:phase state) :playing)
+           (< (:spawned state) (:wave-size state)))
+    (if (<= (:spawn state) 0)
+      (spawn-one state)
+      (assoc state :spawn (- (:spawn state) dt)))
+    state))
+
+(defn start-wave [state]
+  (if (= (:phase state) :playing)
+    state
+    (do
+      (sound/play :blip :volume 0.7)
+      (let [next (+ (:wave state) 1)]
+        (assoc state
+          :phase :playing
+          :wave next
+          :wave-size (+ 5 (* next 2))
+          :spawned 0
+          :spawn 0
+          :message 1.2
+          :combo 1
+          :combo-t 0)))))
+
+(defn move-bullet [dt b]
+  (assoc b
+    :x (+ (:x b) (* (:vx b) dt))
+    :y (+ (:y b) (* (:vy b) dt))
+    :life (- (:life b) dt)))
+
+(defn bullet-box [b]
+  (circle-box (:x b) (:y b) (if (:shell b) 8 5)))
+
+(defn bullet-live? [b]
+  (and (> (:life b) 0)
+       (> (:x b) -12)
+       (< (:x b) 372)
+       (> (:y b) 46)
+       (< (:y b) 372)))
+
+(defn bullet-hit-enemy? [state b e]
+  (and (enemy-alive? state e)
+       (circle-overlap? (bullet-box b) (enemy-box state e))))
+
+(defn bullet-target [state b]
+  (find enemy-keys (fn [e] (bullet-hit-enemy? state b e))))
+
+(defn bullet-hit? [state b]
+  (not= (bullet-target state b) nil))
+
+(defn add-spark [state x y color]
+  (assoc state :sparks (push (:sparks state) {:x x :y y :life 0.34 :color color})))
+
+(defn kill-enemy [state e unit]
+  (do
+    (sound/play :pop :volume 0.5 :pitch 1.18)
+    (add-spark
+      (assoc-in
+        (assoc state
+          :score (+ (:score state) (* (:combo state) (enemy-reward (:kind unit))))
+          :combo (min 5 (+ (:combo state) 1))
+          :combo-t 2.0
+          :shake 0.18)
+        [:enemies e :alive]
+        false)
+      (:x unit)
+      (:y unit)
+      "#ffe08a")))
+
+(defn hurt-enemy [state e dmg]
+  (let [unit (enemy state e)
+        hp (- (:hp unit) dmg)]
+    (if (<= hp 0)
+      (kill-enemy state e unit)
+      (assoc-in state [:enemies e :hp] hp))))
+
+(defn apply-bullet-to-enemy [state e]
+  (let [hit (find (:bullets state) (fn [b] (bullet-hit-enemy? state b e)))]
+    (if hit
+      (hurt-enemy state e (:dmg hit))
+      state)))
+
+(defn damage-enemies [state]
+  (apply-bullet-to-enemy
+    (apply-bullet-to-enemy
+      (apply-bullet-to-enemy
+        (apply-bullet-to-enemy
+          (apply-bullet-to-enemy
+            (apply-bullet-to-enemy
+              (apply-bullet-to-enemy
+                (apply-bullet-to-enemy
+                  (apply-bullet-to-enemy state :e0)
+                  :e1)
+                :e2)
+              :e3)
+            :e4)
+          :e5)
+        :e6)
+      :e7)
+    :e8))
+
+(defn update-bullets [dt state]
+  (let [moved (assoc state :bullets (map (:bullets state) (fn [b] (move-bullet dt b))))
+        pre moved
+        damaged (damage-enemies moved)]
+    (assoc damaged :bullets
+      (filter (:bullets pre)
+        (fn [b] (and (bullet-live? b) (not (bullet-hit? pre b))))))))
+
+(defn make-shot [state unit angle]
+  {:x (:x unit)
+   :y (:y unit)
+   :vx (* (cos angle) 154)
+   :vy (* (sin angle) 154)
+   :life 2.2
+   :kind (:kind unit)})
+
+(defn move-shot [dt s]
+  (assoc s
+    :x (+ (:x s) (* (:vx s) dt))
+    :y (+ (:y s) (* (:vy s) dt))
+    :life (- (:life s) dt)))
+
+(defn shot-box [s]
+  (circle-box (:x s) (:y s) (if (= (:kind s) :heavy) 7 5)))
+
+(defn shot-live? [s]
+  (and (> (:life s) 0)
+       (> (:x s) -16)
+       (< (:x s) 376)
+       (> (:y s) 42)
+       (< (:y s) 376)))
+
+(defn shot-hit-player? [state s]
+  (circle-overlap? (shot-box s) (player-box state)))
+
+(defn any-shot-hit? [state]
+  (any (:shots state) (fn [s] (shot-hit-player? state s))))
+
+(defn damage-player [state amount]
+  (if (<= (:invuln state) 0)
+    (do
+      (sound/play :pop :volume 0.55 :pitch 0.82)
+      (assoc state
+        :hp (max 0 (- (:hp state) amount))
+        :invuln 0.82
+        :combo 1
+        :combo-t 0
+        :shake 0.24
+        :message 1.0))
+    state))
+
+(defn update-shots [dt state]
+  (let [moved (assoc state :shots (map (:shots state) (fn [s] (move-shot dt s))))
+        hit (any-shot-hit? moved)
+        hurt (if hit (damage-player moved 9) moved)]
+    (assoc hurt :shots
+      (filter (:shots moved)
+        (fn [s] (and (shot-live? s) (not (shot-hit-player? moved s))))))))
+
+(defn advance-enemy [dt state e]
+  (let [unit (enemy state e)]
+    (if (enemy-alive? state e)
+      (let [angle (angle-to (:x unit) (:y unit) (:x state) (:y state))
+            keep-away (if (= (:kind unit) :mortar) 102 42)
+            far (> (dist (:x unit) (:y unit) (:x state) (:y state)) keep-away)
+            speed (if far (:speed unit) (* -0.45 (:speed unit)))
+            nx (clamp (+ (:x unit) (* (cos angle) speed dt)) 20 340)
+            ny (clamp (+ (:y unit) (* (sin angle) speed dt)) 58 334)
+            cool (max 0 (- (:cool unit) dt))]
+        (assoc-in
+          (assoc-in
+            (assoc-in state [:enemies e :x] nx)
+            [:enemies e :y]
+            ny)
+          [:enemies e :cool]
+          cool))
+      state)))
+
+(defn enemy-can-shoot? [state e]
+  (let [unit (enemy state e)]
+    (and (enemy-alive? state e)
+         (<= (:cool unit) 0)
+         (< (dist (:x unit) (:y unit) (:x state) (:y state)) 230))))
+
+(defn fire-enemy [state e]
+  (if (enemy-can-shoot? state e)
+    (let [unit (enemy state e)
+          angle (angle-to (:x unit) (:y unit) (:x state) (:y state))]
+      (assoc-in
+        (assoc state :shots (push (:shots state) (make-shot state unit angle)))
+        [:enemies e :cool]
+        (enemy-cool (:kind unit))))
+    state))
+
+(defn step-enemy [dt state e]
+  (fire-enemy (advance-enemy dt state e) e))
+
+(defn step-enemies [dt state]
+  (step-enemy dt
+    (step-enemy dt
+      (step-enemy dt
+        (step-enemy dt
+          (step-enemy dt
+            (step-enemy dt
+              (step-enemy dt
+                (step-enemy dt
+                  (step-enemy dt state :e0)
+                  :e1)
+                :e2)
+              :e3)
+            :e4)
+          :e5)
+        :e6)
+      :e7)
+    :e8))
+
+(defn any-ramming? [state]
+  (any enemy-keys
+    (fn [e]
+      (and (enemy-alive? state e)
+           (circle-overlap? (player-box state) (enemy-box state e))))))
+
+(defn resolve-ramming [state]
+  (if (any-ramming? state)
+    (damage-player state 13)
+    state))
+
+(defn age-spark [dt spark]
+  (assoc spark :life (- (:life spark) dt)))
+
+(defn update-sparks [dt state]
+  (assoc state :sparks
+    (filter
+      (map (:sparks state) (fn [spark] (age-spark dt spark)))
+      (fn [spark] (> (:life spark) 0)))))
+
+(defn repair-hit? [state]
+  (and (:repair-active state)
+       (< (dist (:x state) (:y state) (:repair-x state) (:repair-y state)) 25)))
+
+(defn boost-hit? [state]
+  (and (:boost-active state)
+       (< (dist (:x state) (:y state) (:boost-x state) (:boost-y state)) 25)))
+
+(defn collect-pickups [state]
+  (cond
+    (repair-hit? state)
+      (do
+        (sound/play :blip :volume 0.75 :pitch 0.85)
+        (assoc state
+          :hp (min (:max-hp state) (+ (:hp state) 28))
+          :repair-active false
+          :message 1.1))
+    (boost-hit? state)
+      (do
+        (sound/play :blip :volume 0.75 :pitch 1.55)
+        (assoc state
+          :power (if (= (:power state) :rapid) :shell :rapid)
+          :power-t 8.0
+          :boost-active false
+          :message 1.1))
+    else state))
+
+(defn enemies-clear? [state]
+  (not (any enemy-keys (fn [e] (enemy-alive? state e)))))
+
+(defn wave-clear? [state]
+  (and (= (:phase state) :playing)
+       (>= (:spawned state) (:wave-size state))
+       (enemies-clear? state)))
+
+(defn finish-wave [state]
+  (if (wave-clear? state)
+    (do
+      (sound/play :blip :volume 0.8 :pitch 1.35)
+      (assoc state
+        :phase :prep
+        :score (+ (:score state) (* (:wave state) 100))
+        :repair-active true
+        :repair-x (rand-range 54 310)
+        :repair-y (rand-range 84 316)
+        :boost-active true
+        :boost-x (rand-range 54 310)
+        :boost-y (rand-range 84 316)
+        :message 1.7))
+    state))
+
+(defn check-gameover [state]
+  (if (<= (:hp state) 0)
+    (do
+      (sound/play :pop :volume 0.82 :pitch 0.55)
+      (assoc state :phase :gameover :hp 0 :message 1.5))
+    state))
+
+(defn play-step [dt state]
+  (check-gameover
+    (finish-wave
+      (resolve-ramming
+        (step-enemies dt
+          (update-spawn dt
+            (collect-pickups
+              (update-shots dt
+                (update-bullets dt
+                  (maybe-fire
+                    (move-player dt state)))))))))))
+
+(defn tick-common [dt state]
+  (assoc
+    (update-sparks dt state)
+    :t (+ (:t state) dt)
+    :cool (max 0 (- (:cool state) dt))
+    :invuln (max 0 (- (:invuln state) dt))
+    :shake (max 0 (- (:shake state) dt))
+    :message (max 0 (- (:message state) dt))
+    :combo-t (max 0 (- (:combo-t state) dt))
+    :combo (if (> (:combo-t state) 0) (:combo state) 1)
+    :power-t (max 0 (- (:power-t state) dt))
+    :power (if (> (:power-t state) 0) (:power state) :none)))
+
+(defn handle-ui [state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (retry?) (fresh-state)
+    (and (start?) (not= (:phase state) :gameover)) (start-wave state)
+    else state))
+
+(defn update [dt state]
+  (let [base (arm-music state)
+        ui (handle-ui base)
+        timed (tick-common dt ui)]
+    (if (= (:phase timed) :gameover)
+      timed
+      (play-step dt timed))))
+
+(defn hp-width [state]
+  (clamp (* 94 (/ (:hp state) (:max-hp state))) 0 94))
+
+(defn enemy-hp-width [unit]
+  (clamp (* 28 (/ (:hp unit) (:max unit))) 0 28))
+
+(defn enemy-color [kind]
+  (case kind
+    :heavy "#ef4444"
+    :mortar "#f59e0b"
+    else "#d946ef"))
+
+(defn enemy-name [kind]
+  (case kind
+    :heavy "Heavy"
+    :mortar "Mortar"
+    else "Scout"))
+
+(defn power-name [state]
+  (case (:power state)
+    :rapid "Rapid"
+    :shell "Shell"
+    else "Standard"))
+
+(defn status-line [state]
+  (case (:phase state)
+    :playing (str "Wave " (:wave state) "  " (:spawned state) "/" (:wave-size state))
+    :gameover "Tank disabled"
+    else (str "Ready wave " (+ (:wave state) 1))))
+
+(defn panel-button [x y label color]
+  (group
+    (rect :x x :y y :w 90 :h 30 :color color)
+    (text :font :main :value label :x (+ x 12) :y (+ y 8) :size 12 :color "#f8fafc")))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 66 :h 28 :color "#263238")
+    (text :font :main :value "Back" :x 28 :y 20 :size 12 :color "#f8fafc")))
+
+(defn draw-terrain []
+  (group
+    (rect :x 0 :y 52 :w 360 :h 308 :color "#3e6a44")
+    (sprite :image :terrain :x 0 :y 52 :scale 1)
+    (sprite :image :terrain :x 0 :y 196 :scale 1)
+    (line :x1 34 :y1 90 :x2 326 :y2 90 :width 24 :color "#bfae76")
+    (line :x1 34 :y1 294 :x2 326 :y2 294 :width 24 :color "#bfae76")
+    (line :x1 76 :y1 72 :x2 76 :y2 332 :width 20 :color "#bfae76")
+    (line :x1 284 :y1 72 :x2 284 :y2 332 :width 20 :color "#bfae76")
+    (rect :x 144 :y 130 :w 74 :h 26 :color "#536b57")
+    (rect :x 148 :y 134 :w 66 :h 18 :color "#78936f")
+    (rect :x 56 :y 198 :w 58 :h 24 :color "#536b57")
+    (rect :x 60 :y 202 :w 50 :h 16 :color "#78936f")
+    (rect :x 246 :y 208 :w 54 :h 24 :color "#536b57")
+    (rect :x 250 :y 212 :w 46 :h 16 :color "#78936f")))
+
+(defn draw-player [state]
+  (let [flash (and (> (:invuln state) 0) (= (mod (floor (* (:t state) 18)) 2) 0))
+        rot (sprite-rot (:dir state))
+        aim (aim-dir state)]
+    (if flash
+      empty
+      (group
+        (circle :x (:x state) :y (:y state) :r 24 :color "#1f3a2f")
+        (sprite :image :tank :frame (frame 0) :x (- (:x state) 24) :y (- (:y state) 24) :scale 1 :rotation rot)
+        (line :from [(:x state) (:y state)] :angle aim :length 31 :width 5 :color "#e7f5d6")))))
+
+(defn draw-enemy [state e]
+  (let [unit (enemy state e)
+        angle (rad->deg (angle-to (:x unit) (:y unit) (:x state) (:y state)))
+        scale (case (:kind unit) :heavy 0.92 :mortar 0.8 else 0.72)]
+    (if (enemy-alive? state e)
+      (group
+        (circle :x (:x unit) :y (:y unit) :r (+ (enemy-radius unit) 3) :color (enemy-color (:kind unit)))
+        (sprite :image :tank :frame (frame 1) :x (- (:x unit) 24) :y (- (:y unit) 24) :scale scale :rotation (sprite-rot angle))
+        (rect :x (- (:x unit) 14) :y (- (:y unit) 27) :w 28 :h 4 :color "#172018")
+        (rect :x (- (:x unit) 14) :y (- (:y unit) 27) :w (enemy-hp-width unit) :h 4 :color "#bef264"))
+      empty)))
+
+(defn draw-bullet [b]
+  (if (:shell b)
+    (circle :x (:x b) :y (:y b) :r 6 :color "#fde68a")
+    (line :x1 (- (:x b) (* (:vx b) 0.025)) :y1 (- (:y b) (* (:vy b) 0.025)) :x2 (:x b) :y2 (:y b) :width 3 :color "#fde68a")))
+
+(defn draw-shot [s]
+  (circle :x (:x s) :y (:y s) :r (if (= (:kind s) :heavy) 6 4) :color "#fb7185"))
+
+(defn draw-spark [spark]
+  (group
+    (circle :x (:x spark) :y (:y spark) :r (+ 8 (* (:life spark) 42)) :color "#51372a")
+    (sprite :image :tank :frame (frame 4) :x (- (:x spark) 24) :y (- (:y spark) 24) :scale (+ 0.65 (:life spark)))))
+
+(defn draw-pickups [state]
+  (group
+    (if (:repair-active state)
+      (group
+        (circle :x (:repair-x state) :y (:repair-y state) :r 18 :color "#14532d")
+        (sprite :image :tank :frame (frame 5) :x (- (:repair-x state) 24) :y (- (:repair-y state) 24) :scale 0.78))
+      empty)
+    (if (:boost-active state)
+      (group
+        (circle :x (:boost-x state) :y (:boost-y state) :r 18 :color "#713f12")
+        (sprite :image :tank :frame (frame 3) :x (- (:boost-x state) 24) :y (- (:boost-y state) 24) :scale 0.72))
+      empty)))
+
+(defn draw-hud [state]
+  (group
+    (rect :x 0 :y 0 :w 360 :h 52 :color "#122018")
+    (back-button)
+    (text :font :main :value "Tank Siege" :x 96 :y 10 :size 18 :color "#f8fafc")
+    (text :font :main :value (status-line state) :x 98 :y 32 :size 11 :color "#c8e3b4")
+    (rect :x 232 :y 14 :w 96 :h 10 :color "#3f1d1d")
+    (rect :x 233 :y 15 :w (hp-width state) :h 8 :color "#86efac")
+    (text :font :main :value (str "HP " (:hp state)) :x 236 :y 27 :size 11 :color "#f8fafc")))
+
+(defn draw-panel [state]
+  (group
+    (rect :x 360 :y 0 :w 120 :h 360 :color "#101820")
+    (rect :x 360 :y 0 :w 1 :h 360 :color "#334155")
+    (text :font :main :value "COMMAND" :x 374 :y 14 :size 15 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state)) :x 374 :y 42 :size 12 :color "#fde68a")
+    (text :font :main :value (str "Combo x" (:combo state)) :x 374 :y 62 :size 12 :color "#c4b5fd")
+    (text :font :main :value (str "Gun " (power-name state)) :x 374 :y 86 :size 12 :color "#a7f3d0")
+    (text :font :main :value (if (= (:phase state) :playing) "Space fires" "Start wave") :x 374 :y 112 :size 11 :color "#cbd5e1")
+    (text :font :main :value "Arrows move" :x 374 :y 130 :size 11 :color "#cbd5e1")
+    (rect :x 374 :y 162 :w 90 :h 58 :color "#1f2937")
+    (text :font :main :value "Targets" :x 386 :y 170 :size 11 :color "#94a3b8")
+    (text :font :main :value "Scout" :x 386 :y 188 :size 11 :color "#f0abfc")
+    (text :font :main :value "Heavy" :x 386 :y 204 :size 11 :color "#fca5a5")
+    (panel-button 374 258 (if (= (:phase state) :playing) "Wave Live" "Start") "#166534")
+    (panel-button 374 298 "Retry" "#374151")
+    (text :font :main :value (if (> (:message state) 0) "Keep moving" "") :x 374 :y 338 :size 10 :color "#94a3b8")))
+
+(defn draw-arena [state]
+  (let [shake-x (* (:shake state) 12 (sin (* (:t state) 95)))]
+    (camera :x (- 0 shake-x) :y 0 :zoom 1
+      (group
+        (draw-terrain)
+        (draw-pickups state)
+        (for [b (:bullets state)] (draw-bullet b))
+        (for [s (:shots state)] (draw-shot s))
+        (for [spark (:sparks state)] (draw-spark spark))
+        (for [e enemy-keys] (draw-enemy state e))
+        (draw-player state)
+        (draw-hud state)))))
+
+(defn gameover-card [state]
+  (if (= (:phase state) :gameover)
+    (group
+      (rect :x 74 :y 112 :w 220 :h 112 :color "#111827")
+      (text :font :main :value "Tank disabled" :x 102 :y 132 :size 22 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state)) :x 132 :y 166 :size 17 :color "#fde68a")
+      (text :font :main :value "Retry from command" :x 108 :y 196 :size 12 :color "#cbd5e1"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#0d1412")
+    (draw-arena state)
+    (draw-panel state)
+    (gameover-card state)))
