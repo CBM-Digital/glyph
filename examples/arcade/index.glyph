@@ -50,16 +50,16 @@
       (hit? 246 282 212 50) (open "fussball-fever/game.glyph" next)
       else next)))
 
-(defn icon-frame [i]
-  (case (mod i 8)
-    0 :f0
-    1 :f1
-    2 :f2
-    3 :f3
-    4 :f4
-    5 :f5
-    6 :f6
-    else :f7))
+(defn icon-frame [image]
+  (case image
+    :ski :f3
+    :space :f0
+    :tank :f0
+    :tower :f0
+    :platform :f0
+    :fish :f0
+    :food :f1
+    else :f2))
 
 (defn button-color [i]
   (case (mod i 6)
@@ -74,7 +74,7 @@
   (group
     (rect :x x :y y :w 212 :h 50 :color (button-color i))
     (rect :x (+ x 6) :y (+ y 6) :w 38 :h 38 :color "#111827")
-    (sprite :image image :frame (icon-frame i) :x (+ x 9) :y (+ y 8) :scale 0.58)
+    (sprite :image image :frame (icon-frame image) :x (+ x 9) :y (+ y 8) :scale 0.58)
     (text :font :main :value label :x (+ x 54) :y (+ y 9) :size 15 :color "#f8fafc")
     (text :font :main :value tag :x (+ x 54) :y (+ y 30) :size 10 :color "#cbd5e1")))
 

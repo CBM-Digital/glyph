@@ -211,7 +211,7 @@
   (player (- x 17) (- y 20) "#285db8" :f0 false))
 
 (defn red-player [x y]
-  (player (- x 17) (- y 20) "#b8323c" :f3 true))
+  (player (- x 17) (- y 20) "#b8323c" :f1 true))
 
 (defn blue-row [state]
   (group

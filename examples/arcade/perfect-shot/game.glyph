@@ -1,7 +1,7 @@
 (game perfect-shot
   :title "Perfect Shot"
   :size [480 360]
-  :assets {:orb "../assets/kenney/strips/puzzle-kit.png"
+  :assets {:orb "../assets/perfect-shot.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
@@ -37,12 +37,11 @@
         :flash (max 0 (- (:flash state) (* dt 2))))))
 
 (defn orb-frame [score]
-  (case (mod score 5)
+  (case (mod score 4)
     0 :f0
     1 :f1
     2 :f2
-    3 :f4
-    else :f6))
+    else :f3))
 
 (defn back-button []
   (group

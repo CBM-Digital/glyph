@@ -1,7 +1,7 @@
 (game lane-dodger
   :title "Lane Dodger"
   :size [480 360]
-  :assets {:car "../assets/kenney/strips/tank-kit.png"
+  :assets {:car "../assets/lane-cars.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}

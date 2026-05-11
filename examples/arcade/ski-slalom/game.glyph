@@ -213,12 +213,12 @@
   (case h
     :h1 :f4
     :h3 :f4
-    :h5 :f3
+    :h5 :f6
     :h6 :f4
-    :h8 :f3
+    :h8 :f6
     :h9 :f4
     :h11 :f4
-    else :f3))
+    else :f6))
 
 (defn hazard-box [h]
   (rect-box (- (hazard-x h) 17) (- (hazard-y h) 13) 34 32))
@@ -459,11 +459,11 @@
 
 (defn player-frame [state]
   (cond
-    (> (:air state) 0) :f1
-    (> (:invuln state) 0) :f6
-    (> (abs (:vx state)) 95) :f2
-    (> (:speed state) 220) :f0
-    else :f0))
+    (> (:air state) 0) :f3
+    (> (:invuln state) 0) :f3
+    (> (abs (:vx state)) 95) :f3
+    (> (:speed state) 220) :f3
+    else :f3))
 
 (defn draw-player [state]
   (let [blink (and (> (:invuln state) 0) (= (mod (floor (* (:t state) 18)) 2) 0))
@@ -478,7 +478,7 @@
           (sprite :image :kit :frame (player-frame state) :x -28 :y -30 :scale 1.18 :flip-x (< (:vx state) -8)))))))
 
 (defn heart [i state]
-  (sprite :image :kit :frame (if (> (:health state) i) :f5 :f3) :x (+ 382 (* i 26)) :y 14 :scale 0.48))
+  (sprite :image :kit :frame (if (> (:health state) i) :f3 :f7) :x (+ 382 (* i 26)) :y 14 :scale 0.48))
 
 (defn stamina-bar [state]
   (group

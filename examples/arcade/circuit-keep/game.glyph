@@ -2,6 +2,7 @@
   :title "Circuit Keep"
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/tower-defense-kit.png"
+           :enemy "../assets/kenney/strips/tiny-battle-kit.png"
            :sheet "../assets/kenney/sheets/tower-defense.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
@@ -148,9 +149,9 @@
 
 (defn tower-frame [kind]
   (case kind
-    :bolt (frame 0)
-    :cannon (frame 3)
-    :frost (frame 5)
+    :bolt (frame 2)
+    :cannon (frame 1)
+    :frost (frame 0)
     else (frame 7)))
 
 (defn enemy-kind [n]
@@ -186,9 +187,9 @@
 
 (defn enemy-frame [kind]
   (case kind
-    :brute (frame 6)
+    :brute (frame 0)
     :runner (frame 2)
-    else (frame 1)))
+    else (frame 7)))
 
 (defn make-enemy [kind wave]
   (let [hp (enemy-hp kind wave)]
@@ -568,7 +569,7 @@
     (if (enemy-alive? state e)
       (group
         (circle :x (enemy-x state e) :y (enemy-y state e) :r 17 :color (enemy-color (:kind unit)))
-        (sprite :image :kit :frame (enemy-frame (:kind unit)) :x x :y y :scale 0.72)
+        (sprite :image :enemy :frame (enemy-frame (:kind unit)) :x x :y y :scale 0.72)
         (rect :x (- (enemy-x state e) 14) :y (- (enemy-y state e) 24) :w 28 :h 4 :color "#111827")
         (rect :x (- (enemy-x state e) 14) :y (- (enemy-y state e) 24) :w (hp-width unit) :h 4 :color "#86efac")
         (if (> (:slow unit) 0)

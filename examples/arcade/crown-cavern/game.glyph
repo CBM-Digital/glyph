@@ -2,6 +2,7 @@
   :title "Crown Cavern"
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/platform-kit.png"
+           :item "../assets/kenney/strips/puzzle-kit.png"
            :sheet "../assets/kenney/sheets/platform-tilemap.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
@@ -462,7 +463,7 @@
   (if (gem-active? state g)
     (transform :x (gem-x g) :y (+ (gem-y g) (* 3 (sin (+ (* (:t state) 5) (gem-x g))))) :rotation (* 60 (:t state))
       (circle :x 0 :y 0 :r 13 :color "#1d3557")
-      (sprite :image :kit :frame (frame 5) :x -22 :y -22 :scale 0.92))
+      (sprite :image :item :frame (frame 4) :x -22 :y -22 :scale 0.92))
     empty))
 
 (defn draw-hazard [h]
@@ -494,14 +495,14 @@
       (rect :x (+ x 8) :y (- y 46) :w 5 :h 46 :color "#4b5563")
       (rect :x (+ x 13) :y (- y 44) :w 28 :h 18 :color (if active "#facc15" "#64748b"))
       (if active
-        (sprite :image :kit :frame (frame 5) :x (+ x 18) :y (- y 50) :scale 0.42)
+        (sprite :image :item :frame (frame 4) :x (+ x 18) :y (- y 50) :scale 0.42)
         empty))))
 
 (defn player-frame [state]
   (cond
-    (> (:invuln state) 0) (frame 6)
+    (> (:invuln state) 0) (frame 0)
     (not (:ground state)) (frame 1)
-    (> (abs (:vx state)) 12) (frame (floor (* (:t state) 12)))
+    (> (abs (:vx state)) 12) (if (= (mod (floor (* (:t state) 12)) 2) 0) (frame 0) (frame 1))
     else (frame 0)))
 
 (defn draw-player [state]
@@ -516,7 +517,7 @@
   (group
     (rect :x 1598 :y 246 :w 38 :h 42 :color "#334155")
     (rect :x 1604 :y 238 :w 26 :h 12 :color "#facc15")
-    (sprite :image :kit :frame (frame 7) :x 1588 :y 208 :scale 1.1)
+    (sprite :image :item :frame (frame 4) :x 1588 :y 208 :scale 1.1)
     (circle :x 1617 :y 235 :r (+ 14 (* 3 (sin (* (:t state) 4)))) :color "#78350f")))
 
 (defn cave-bg [state]
@@ -532,7 +533,7 @@
     (line :x1 0 :y1 304 :x2 world-w :y2 304 :width 4 :color "#4ade80")))
 
 (defn hud-heart [i state]
-  (sprite :image :kit :frame (if (> (:health state) i) (frame 5) (frame 3)) :x (+ 374 (* i 26)) :y 16 :scale 0.48))
+  (sprite :image :item :frame (if (> (:health state) i) (frame 4) (frame 1)) :x (+ 374 (* i 26)) :y 16 :scale 0.48))
 
 (defn hud-message [state]
   (if (> (:message-time state) 0)

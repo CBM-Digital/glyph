@@ -676,19 +676,19 @@
 (defn draw-spark [spark]
   (group
     (circle :x (:x spark) :y (:y spark) :r (+ 8 (* (:life spark) 42)) :color "#51372a")
-    (sprite :image :tank :frame (frame 4) :x (- (:x spark) 24) :y (- (:y spark) 24) :scale (+ 0.65 (:life spark)))))
+    (sprite :image :tank :frame (frame 7) :x (- (:x spark) 24) :y (- (:y spark) 24) :scale (+ 0.65 (:life spark)))))
 
 (defn draw-pickups [state]
   (group
     (if (:repair-active state)
       (group
         (circle :x (:repair-x state) :y (:repair-y state) :r 18 :color "#14532d")
-        (sprite :image :tank :frame (frame 5) :x (- (:repair-x state) 24) :y (- (:repair-y state) 24) :scale 0.78))
+        (sprite :image :tank :frame (frame 3) :x (- (:repair-x state) 24) :y (- (:repair-y state) 24) :scale 0.78))
       empty)
     (if (:boost-active state)
       (group
         (circle :x (:boost-x state) :y (:boost-y state) :r 18 :color "#713f12")
-        (sprite :image :tank :frame (frame 3) :x (- (:boost-x state) 24) :y (- (:boost-y state) 24) :scale 0.72))
+        (sprite :image :tank :frame (frame 6) :x (- (:boost-x state) 24) :y (- (:boost-y state) 24) :scale 0.72))
       empty)))
 
 (defn draw-hud [state]

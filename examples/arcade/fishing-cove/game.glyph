@@ -33,7 +33,14 @@
     :blue :f0
     :gold :f1
     :purple :f5
-    else :f7))
+    else :f6))
+
+(defn swim-frame [i]
+  (case (mod i 4)
+    0 :f0
+    1 :f1
+    2 :f5
+    else :f6))
 
 (defn fish-name [fish]
   (case fish
@@ -293,7 +300,7 @@
 (defn swim-fish [i state]
   (let [x (mod (+ (* i 82) (* (:t state) (+ 12 (* i 2)))) 520)
         y (+ 206 (* 18 (sin (+ i (* (:t state) 0.8)))))]
-    (sprite :image :fish :frame (frame i) :x (- x 42) :y y :scale 0.62)))
+    (sprite :image :fish :frame (swim-frame i) :x (- x 42) :y y :scale 0.62)))
 
 (defn cast-preview [state]
   (let [aim (:aim state)
@@ -342,7 +349,7 @@
     (text :font :main :value (str (:log-gold state)) :x 434 :y 229 :size 11 :color "#dff8ff")
     (sprite :image :fish :frame :f5 :x 350 :y 252 :scale 0.42)
     (text :font :main :value (str (:log-purple state)) :x 378 :y 257 :size 11 :color "#dff8ff")
-    (sprite :image :fish :frame :f7 :x 406 :y 252 :scale 0.42)
+    (sprite :image :fish :frame :f6 :x 406 :y 252 :scale 0.42)
     (text :font :main :value (str (:log-pearl state)) :x 434 :y 257 :size 11 :color "#dff8ff")))
 
 (defn view [state]

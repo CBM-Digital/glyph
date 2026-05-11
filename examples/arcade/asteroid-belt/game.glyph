@@ -597,7 +597,7 @@
     (let [ufo (:ufo state)]
       (group
         (circle :x (:x ufo) :y (:y ufo) :r 24 :color "#1e293b")
-        (sprite :image :kit :frame (frame 1) :x (- (:x ufo) 24) :y (- (:y ufo) 24) :scale 1)
+        (sprite :image :kit :frame (frame 6) :x (- (:x ufo) 24) :y (- (:y ufo) 24) :scale 1)
         (line :x1 (- (:x ufo) 22) :y1 (+ (:y ufo) 20) :x2 (+ (:x ufo) 22) :y2 (+ (:y ufo) 20) :width 2 :color "#93c5fd")))
     empty))
 
@@ -606,7 +606,7 @@
     (if (:active power)
       (group
         (circle :x (:x power) :y (:y power) :r (+ 16 (* 3 (sin (* (:t state) 8)))) :color (if (= (:kind power) :shield) "#155e75" "#14532d"))
-        (sprite :image :kit :frame (if (= (:kind power) :shield) (frame 6) (frame 2))
+        (sprite :image :kit :frame (if (= (:kind power) :shield) (frame 7) (frame 2))
                 :x (- (:x power) 18) :y (- (:y power) 18) :scale 0.75))
       empty)))
 

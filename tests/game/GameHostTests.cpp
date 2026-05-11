@@ -328,9 +328,19 @@ void testArcadeExampleScenesCompileAndRender() {
   const auto root = repoRoot();
   const std::vector<std::filesystem::path> scenes{
       root / "examples/arcade/index.glyph",
-      root / "examples/arcade/perfect-shot/game.glyph",
-      root / "examples/arcade/stack-tower/game.glyph",
+      root / "examples/arcade/asteroid-belt/game.glyph",
+      root / "examples/arcade/chef-chaos/game.glyph",
+      root / "examples/arcade/circuit-keep/game.glyph",
+      root / "examples/arcade/crown-cavern/game.glyph",
+      root / "examples/arcade/fishing-cove/game.glyph",
+      root / "examples/arcade/fussball-fever/game.glyph",
       root / "examples/arcade/lane-dodger/game.glyph",
+      root / "examples/arcade/particle-swirl/game.glyph",
+      root / "examples/arcade/perfect-shot/game.glyph",
+      root / "examples/arcade/platform-hop/game.glyph",
+      root / "examples/arcade/ski-slalom/game.glyph",
+      root / "examples/arcade/stack-tower/game.glyph",
+      root / "examples/arcade/tank-siege/game.glyph",
   };
 
   for (const auto& scene : scenes) {
@@ -339,6 +349,13 @@ void testArcadeExampleScenesCompileAndRender() {
     host.tick(1.0 / 60.0);
     require(!host.renderView().empty(), "arcade scene renders " + scene.string());
     require(!host.assets().assets().empty(), "arcade scene has assets " + scene.string());
+    for (const auto& asset : host.assets().assets()) {
+      const std::filesystem::path assetPath(asset.path);
+      if (!assetPath.is_absolute()) {
+        require(std::filesystem::exists(scene.parent_path() / assetPath),
+                "arcade asset exists " + (scene.parent_path() / assetPath).string());
+      }
+    }
   }
 }
 

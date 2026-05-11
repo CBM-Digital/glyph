@@ -2,7 +2,7 @@
   :title "Particle Swirl"
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/particle-kit.png"
-           :sheet "../assets/kenney/sheets/particle-preview.png"
+           :sheet "../assets/kenney/strips/particle-kit.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
