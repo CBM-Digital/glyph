@@ -2,10 +2,17 @@
 #include "script/Error.h"
 
 #include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -72,6 +79,26 @@ void writeRuntimeFixture(const std::filesystem::path& root) {
   writeFile(root / "assets/hero.ppm", "P3 1 1 255 255 255 255\n");
 }
 
+class MemoryAssetSource final : public glyph::assets::IAssetSource {
+public:
+  explicit MemoryAssetSource(std::unordered_map<std::string, std::string> files) : files_(std::move(files)) {}
+
+  std::optional<std::vector<std::uint8_t>> readBytes(std::string_view path) const override {
+    auto found = files_.find(std::string(path));
+    if (found == files_.end()) {
+      return std::nullopt;
+    }
+    return std::vector<std::uint8_t>(found->second.begin(), found->second.end());
+  }
+
+  bool exists(std::string_view path) const override {
+    return files_.find(std::string(path)) != files_.end();
+  }
+
+private:
+  std::unordered_map<std::string, std::string> files_;
+};
+
 void testRuntimeShellLoadsFramesInputAndNavigation() {
   const auto root = runtimeTestRoot();
   writeRuntimeFixture(root);
@@ -79,8 +106,15 @@ void testRuntimeShellLoadsFramesInputAndNavigation() {
   glyph::runtime::RuntimeShell shell(root / "index.glyph");
   require(shell.bundleRoot() == std::filesystem::weakly_canonical(root), "bundle root is scene directory");
   require(shell.currentSceneFile().filename() == "index.glyph", "initial scene loaded");
+  require(shell.currentScenePath() == "index.glyph", "initial scene path is bundle relative");
   require(shell.host().definition().title == "Runtime Index", "initial title");
-  require(shell.assetPath("assets/hero.ppm") == root / "assets/hero.ppm", "relative asset path");
+  require(shell.assetPath("assets/hero.ppm") == std::filesystem::weakly_canonical(root / "assets/hero.ppm"),
+          "relative asset path");
+  require(shell.assetLocation("assets/hero.ppm") == "assets/hero.ppm", "relative asset location");
+  require(shell.assetExists("assets/hero.ppm"), "relative asset exists");
+  require(shell.readAssetText("assets/hero.ppm").has_value(), "relative asset reads text");
+  require(shell.assetSource().lastWriteTime(shell.currentScenePath()).has_value(),
+          "filesystem source exposes last write time");
 
   shell.beginFrame();
   shell.setPointerDown(true, glyph::Vec2{42.0f, 5.0f});
@@ -91,7 +125,70 @@ void testRuntimeShellLoadsFramesInputAndNavigation() {
 
   require(shell.sceneDepth() == 2, "scene stack pushes");
   require(shell.currentSceneFile().filename() == "next.glyph", "current scene switches");
+  require(shell.currentScenePath() == "next.glyph", "current scene path switches");
   require(shell.host().definition().title == "Runtime Next", "next scene title");
+}
+
+void testRuntimeShellLoadsFromAbstractAssetSource() {
+  auto source = std::make_shared<MemoryAssetSource>(std::unordered_map<std::string, std::string>{
+      {"index.glyph", R"(
+        (game memory-index
+          :title "Memory Index"
+          :size [320 180]
+          :assets {:hero "assets/hero.ppm"}
+          :initial initial
+          :update update
+          :view view)
+
+        (def initial {:taps 0})
+
+        (defn update [dt state]
+          (if (pressed? :tap)
+            (do
+              (navigation/push "next.glyph")
+              (update state :taps + 1))
+            state))
+
+        (defn view [state]
+          empty)
+      )"},
+      {"next.glyph", R"(
+        (game memory-next
+          :title "Memory Next"
+          :size [320 180]
+          :initial initial
+          :update update
+          :view view)
+
+        (def initial {:ticks 0})
+
+        (defn update [dt state]
+          (update state :ticks + 1))
+
+        (defn view [state]
+          empty)
+      )"},
+      {"assets/hero.ppm", "P3 1 1 255 255 255 255\n"},
+  });
+
+  glyph::runtime::RuntimeShell shell(source, "index.glyph");
+  require(shell.bundleRoot().empty(), "abstract source has no filesystem bundle root");
+  require(shell.currentScenePath() == "index.glyph", "abstract source scene path");
+  require(shell.currentSceneFile() == std::filesystem::path("index.glyph"), "abstract source scene file fallback");
+  require(shell.host().definition().title == "Memory Index", "abstract source title");
+  require(shell.assetLocation("assets/hero.ppm") == "assets/hero.ppm", "abstract source asset location");
+  require(shell.assetExists("assets/hero.ppm"), "abstract source asset exists");
+  require(shell.readAssetBytes("assets/hero.ppm").has_value(), "abstract source reads bytes");
+  require(!shell.assetExists("../escape.ppm"), "abstract source rejects escaping asset path");
+
+  shell.beginFrame();
+  shell.setActionDown(":tap", true);
+  shell.tick(glyph::game::GameHost::fixedDt);
+  require(shell.processNavigation(), "abstract source navigation works");
+  shell.endFrame();
+
+  require(shell.currentScenePath() == "next.glyph", "abstract source switches scene path");
+  require(shell.host().definition().title == "Memory Next", "abstract source next scene title");
 }
 
 void testRuntimeShellPauseResume() {
@@ -125,6 +222,7 @@ void testRuntimeShellPauseResume() {
 int main() {
   try {
     testRuntimeShellLoadsFramesInputAndNavigation();
+    testRuntimeShellLoadsFromAbstractAssetSource();
     testRuntimeShellPauseResume();
   } catch (const glyph::script::ScriptError& error) {
     std::cerr << "ScriptError: " << error.what() << '\n';

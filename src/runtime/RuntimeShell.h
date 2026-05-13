@@ -1,12 +1,15 @@
 #pragma once
 
+#include "assets/AssetSource.h"
 #include "core/Types.h"
 #include "game/GameHost.h"
 #include "input/InputSystem.h"
 #include "render/DrawCommand.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,8 +20,10 @@ class RuntimeShell {
 public:
   RuntimeShell() = default;
   explicit RuntimeShell(std::filesystem::path entryFile);
+  RuntimeShell(std::shared_ptr<assets::IAssetSource> assetSource, std::string entryPath);
 
   void loadGameBundle(std::filesystem::path entryFile);
+  void loadGameBundle(std::shared_ptr<assets::IAssetSource> assetSource, std::string entryPath);
 
   void beginFrame();
   void tick(double deltaSeconds);
@@ -44,7 +49,13 @@ public:
 
   const std::filesystem::path& bundleRoot() const;
   const std::filesystem::path& currentSceneFile() const;
+  const std::string& currentScenePath() const;
+  std::string assetLocation(const std::string& assetPath) const;
   std::filesystem::path assetPath(const std::string& assetPath) const;
+  const assets::IAssetSource& assetSource() const;
+  std::optional<std::string> readAssetText(const std::string& assetPath) const;
+  std::optional<std::vector<std::uint8_t>> readAssetBytes(const std::string& assetPath) const;
+  bool assetExists(const std::string& assetPath) const;
   std::size_t sceneDepth() const;
 
   const std::string& statusError() const;
@@ -54,15 +65,17 @@ public:
 private:
   struct Scene {
     game::GameHost host;
+    std::string path;
     std::filesystem::path file;
     std::string statusError;
   };
 
   Scene& currentScene();
   const Scene& currentScene() const;
-  std::unique_ptr<Scene> loadSceneFile(const std::filesystem::path& sceneFile) const;
+  std::unique_ptr<Scene> loadSceneFile(const std::string& scenePath) const;
   StringId internAction(std::string_view action);
 
+  std::shared_ptr<assets::IAssetSource> assetSource_;
   std::filesystem::path bundleRoot_;
   std::vector<std::unique_ptr<Scene>> scenes_;
   bool paused_ = false;

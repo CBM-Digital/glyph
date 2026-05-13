@@ -22,6 +22,7 @@ add_library(glyph_script
   src/script/Env.cpp
   src/script/Native.cpp
   src/script/VM.cpp
+  src/assets/AssetSource.cpp
   src/assets/AssetManager.cpp
   src/audio/AudioSystem.cpp
   src/input/InputSystem.cpp

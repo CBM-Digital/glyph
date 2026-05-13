@@ -27,7 +27,6 @@
 #include <iostream>
 #include <map>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -94,16 +93,6 @@ struct SDLState {
   std::unordered_map<StringId, Mix_Music*> music;
 #endif
 };
-
-std::string readFile(const std::string& file) {
-  std::ifstream input(file);
-  if (!input) {
-    throw script::RuntimeError("unable to open " + file);
-  }
-  std::ostringstream source;
-  source << input.rdbuf();
-  return source.str();
-}
 
 void applySceneWindow(SDLState& sdl, const game::GameHost& host) {
   const int width = static_cast<int>(host.definition().logicalSize.x);
@@ -1003,10 +992,10 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
   }
 
   loadSDLAssets(sdl, shell);
+  std::string reloadPath = shell.currentScenePath();
   std::filesystem::path reloadFile = shell.currentSceneFile();
-  std::filesystem::file_time_type lastWriteTime =
-      std::filesystem::exists(reloadFile) ? std::filesystem::last_write_time(reloadFile)
-                                          : std::filesystem::file_time_type{};
+  std::optional<std::filesystem::file_time_type> lastWriteTime =
+      shell.assetSource().lastWriteTime(reloadPath);
   double reloadPollSeconds = 0.0;
 
   bool running = true;
@@ -1028,13 +1017,15 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
     reloadPollSeconds += dt;
     if (reloadPollSeconds >= 0.25) {
       reloadPollSeconds = 0.0;
-      if (std::filesystem::exists(reloadFile)) {
-        const auto writeTime = std::filesystem::last_write_time(reloadFile);
+      if (auto writeTime = shell.assetSource().lastWriteTime(reloadPath)) {
         if (writeTime != lastWriteTime) {
           lastWriteTime = writeTime;
           try {
-            const auto result =
-                shell.host().reloadSourcePreservingState(readFile(reloadFile.string()), reloadFile.string());
+            const auto source = shell.assetSource().readText(reloadPath);
+            if (!source) {
+              throw script::RuntimeError("unable to open " + reloadPath);
+            }
+            const auto result = shell.host().reloadSourcePreservingState(*source, reloadPath);
             if (result.success) {
               shell.clearStatusError();
               clearLoadedAssets(sdl);
@@ -1061,9 +1052,9 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
       const std::string previousStatusError = shell.statusError();
       if (shell.processNavigation()) {
         activateScene(sdl, shell);
+        reloadPath = shell.currentScenePath();
         reloadFile = shell.currentSceneFile();
-        lastWriteTime = std::filesystem::exists(reloadFile) ? std::filesystem::last_write_time(reloadFile)
-                                                            : std::filesystem::file_time_type{};
+        lastWriteTime = shell.assetSource().lastWriteTime(reloadPath);
         std::cerr << "activated scene " << reloadFile.string() << '\n';
       } else if (!shell.statusError().empty() && shell.statusError() != previousStatusError) {
         std::cerr << "navigation failed: " << shell.statusError() << '\n';
