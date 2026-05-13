@@ -1,8 +1,8 @@
 #include "platform/SDLDesktopApp.h"
 
 #include "audio/AudioSystem.h"
-#include "game/GameHost.h"
 #include "render/DrawCommand.h"
+#include "runtime/RuntimeShell.h"
 #include "script/Error.h"
 
 #include <SDL.h>
@@ -26,11 +26,9 @@
 #include <fstream>
 #include <iostream>
 #include <map>
-#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <system_error>
 #include <unordered_map>
 #include <vector>
 
@@ -97,13 +95,6 @@ struct SDLState {
 #endif
 };
 
-struct Scene {
-  game::GameHost host;
-  std::filesystem::path file;
-  std::filesystem::file_time_type lastWriteTime {};
-  std::string reloadError;
-};
-
 std::string readFile(const std::string& file) {
   std::ifstream input(file);
   if (!input) {
@@ -112,67 +103,6 @@ std::string readFile(const std::string& file) {
   std::ostringstream source;
   source << input.rdbuf();
   return source.str();
-}
-
-std::filesystem::path resolveAssetPath(const std::filesystem::path& gameFile, const std::string& assetPath) {
-  const std::filesystem::path raw(assetPath);
-  if (raw.is_absolute()) {
-    return raw;
-  }
-  return gameFile.parent_path() / raw;
-}
-
-std::filesystem::path canonicalSceneRoot(const std::filesystem::path& gameFile) {
-  std::error_code ec;
-  auto root = std::filesystem::weakly_canonical(gameFile.parent_path(), ec);
-  return ec ? std::filesystem::absolute(gameFile.parent_path()) : root;
-}
-
-bool pathInsideRoot(const std::filesystem::path& root, const std::filesystem::path& candidate) {
-  const auto relative = candidate.lexically_relative(root);
-  if (relative.empty()) {
-    return true;
-  }
-  auto it = relative.begin();
-  return it != relative.end() && *it != ".." && !relative.is_absolute();
-}
-
-std::optional<std::filesystem::path> resolveScenePath(const std::filesystem::path& root,
-                                                      const std::filesystem::path& currentFile,
-                                                      const std::string& target,
-                                                      std::string& error) {
-  if (target.empty()) {
-    error = "navigation target is empty";
-    return std::nullopt;
-  }
-
-  const std::filesystem::path raw(target);
-  std::filesystem::path candidate = raw.is_absolute() ? raw : currentFile.parent_path() / raw;
-  if (candidate.extension() != ".glyph") {
-    error = "navigation target must be a .glyph file";
-    return std::nullopt;
-  }
-
-  std::error_code ec;
-  candidate = std::filesystem::weakly_canonical(candidate, ec);
-  if (ec || !std::filesystem::exists(candidate)) {
-    error = "navigation target does not exist: " + target;
-    return std::nullopt;
-  }
-  if (!pathInsideRoot(root, candidate)) {
-    error = "navigation target escapes the game bundle: " + target;
-    return std::nullopt;
-  }
-  return candidate;
-}
-
-std::unique_ptr<Scene> loadSceneFile(const std::filesystem::path& sceneFile) {
-  auto scene = std::make_unique<Scene>();
-  scene->file = sceneFile;
-  scene->host.loadSource(readFile(sceneFile.string()), sceneFile.string());
-  scene->lastWriteTime = std::filesystem::exists(sceneFile) ? std::filesystem::last_write_time(sceneFile)
-                                                            : std::filesystem::file_time_type{};
-  return scene;
 }
 
 void applySceneWindow(SDLState& sdl, const game::GameHost& host) {
@@ -412,9 +342,9 @@ void queueAudio(SDL_AudioDeviceID device, const AudioAsset& asset, float volume)
   SDL_QueueAudio(device, scaled.data(), static_cast<Uint32>(scaled.size() * sizeof(float)));
 }
 
-void loadSDLAssets(SDLState& sdl, game::GameHost& host, const std::filesystem::path& gameFile) {
-  for (const auto& asset : host.assets().assets()) {
-    const auto path = resolveAssetPath(gameFile, asset.path);
+void loadSDLAssets(SDLState& sdl, runtime::RuntimeShell& shell) {
+  for (const auto& asset : shell.host().assets().assets()) {
+    const auto path = shell.assetPath(asset.path);
     switch (asset.type) {
     case assets::AssetType::Texture:
       sdl.textures[asset.name] = loadTexture(sdl.renderer, path, asset.name);
@@ -548,52 +478,10 @@ void processAudio(SDLState& sdl, game::GameHost& host) {
   host.audio().flush();
 }
 
-void activateScene(SDLState& sdl, Scene& scene) {
+void activateScene(SDLState& sdl, runtime::RuntimeShell& shell) {
   clearLoadedAssets(sdl);
-  loadSDLAssets(sdl, scene.host, scene.file);
-  applySceneWindow(sdl, scene.host);
-}
-
-void processNavigation(SDLState& sdl, std::vector<std::unique_ptr<Scene>>& scenes,
-                       const std::filesystem::path& root) {
-  if (scenes.empty()) {
-    return;
-  }
-
-  Scene& current = *scenes.back();
-  const auto commands = current.host.navigation().commands();
-  current.host.navigation().clear();
-
-  for (const auto& command : commands) {
-    if (command.type == game::NavigationCommandType::Push) {
-      std::string error;
-      const auto target = resolveScenePath(root, current.file, command.target, error);
-      if (!target) {
-        current.reloadError = error;
-        std::cerr << "navigation failed: " << error << '\n';
-        return;
-      }
-
-      try {
-        scenes.push_back(loadSceneFile(*target));
-        activateScene(sdl, *scenes.back());
-        std::cerr << "pushed scene " << target->string() << '\n';
-      } catch (const script::ScriptError& err) {
-        current.reloadError = err.what();
-        std::cerr << "navigation failed: " << current.reloadError << '\n';
-      }
-      return;
-    }
-
-    if (command.type == game::NavigationCommandType::Pop) {
-      if (scenes.size() > 1) {
-        scenes.pop_back();
-        activateScene(sdl, *scenes.back());
-        std::cerr << "popped scene\n";
-      }
-      return;
-    }
-  }
+  loadSDLAssets(sdl, shell);
+  applySceneWindow(sdl, shell.host());
 }
 
 std::string overlayText(std::string value) {
@@ -949,17 +837,7 @@ void renderCommands(SDLState& sdl, const StringInterner& interner,
   }
 }
 
-void consumeEvent(game::GameHost& host, const SDL_Event& event, bool& running) {
-  const auto tap = host.vm().interner().intern(":tap");
-  const auto confirm = host.vm().interner().intern(":confirm");
-  const auto cancel = host.vm().interner().intern(":cancel");
-  const auto left = host.vm().interner().intern(":left");
-  const auto right = host.vm().interner().intern(":right");
-  const auto up = host.vm().interner().intern(":up");
-  const auto down = host.vm().interner().intern(":down");
-  const auto moveX = host.vm().interner().intern(":move-x");
-  const auto moveY = host.vm().interner().intern(":move-y");
-
+void consumeEvent(runtime::RuntimeShell& shell, const SDL_Event& event, bool& running) {
   switch (event.type) {
   case SDL_QUIT:
     running = false;
@@ -968,55 +846,55 @@ void consumeEvent(game::GameHost& host, const SDL_Event& event, bool& running) {
   case SDL_KEYUP: {
     const bool pressed = event.type == SDL_KEYDOWN;
     if (event.key.keysym.sym == SDLK_ESCAPE) {
-      host.input().setActionDown(cancel, pressed);
+      shell.setActionDown(":cancel", pressed);
       if (pressed) {
         running = false;
       }
     }
     if (event.key.keysym.sym == SDLK_SPACE || event.key.keysym.sym == SDLK_RETURN) {
-      host.input().setActionDown(tap, pressed);
-      host.input().setActionDown(confirm, pressed);
+      shell.setActionDown(":tap", pressed);
+      shell.setActionDown(":confirm", pressed);
     }
     if (event.key.keysym.sym == SDLK_LEFT || event.key.keysym.sym == SDLK_a) {
-      host.input().setActionDown(left, pressed);
-      host.input().setAxis(moveX, pressed ? -1.0f : 0.0f);
+      shell.setActionDown(":left", pressed);
+      shell.setAxis(":move-x", pressed ? -1.0f : 0.0f);
     }
     if (event.key.keysym.sym == SDLK_RIGHT || event.key.keysym.sym == SDLK_d) {
-      host.input().setActionDown(right, pressed);
-      host.input().setAxis(moveX, pressed ? 1.0f : 0.0f);
+      shell.setActionDown(":right", pressed);
+      shell.setAxis(":move-x", pressed ? 1.0f : 0.0f);
     }
     if (event.key.keysym.sym == SDLK_UP || event.key.keysym.sym == SDLK_w) {
-      host.input().setActionDown(up, pressed);
-      host.input().setAxis(moveY, pressed ? -1.0f : 0.0f);
+      shell.setActionDown(":up", pressed);
+      shell.setAxis(":move-y", pressed ? -1.0f : 0.0f);
     }
     if (event.key.keysym.sym == SDLK_DOWN || event.key.keysym.sym == SDLK_s) {
-      host.input().setActionDown(down, pressed);
-      host.input().setAxis(moveY, pressed ? 1.0f : 0.0f);
+      shell.setActionDown(":down", pressed);
+      shell.setAxis(":move-y", pressed ? 1.0f : 0.0f);
     }
     break;
   }
   case SDL_MOUSEBUTTONDOWN:
-    host.input().setActionDown(tap, true);
-    host.input().setPointerDown(true, Vec2{static_cast<float>(event.button.x), static_cast<float>(event.button.y)});
+    shell.setActionDown(":tap", true);
+    shell.setPointerDown(true, Vec2{static_cast<float>(event.button.x), static_cast<float>(event.button.y)});
     break;
   case SDL_MOUSEBUTTONUP: {
-    host.input().setActionDown(tap, false);
+    shell.setActionDown(":tap", false);
     const Vec2 pos{static_cast<float>(event.button.x), static_cast<float>(event.button.y)};
-    const Vec2 start = host.input().pointerStartPosition();
-    host.input().setPointerDown(false, pos);
+    const Vec2 start = shell.input().pointerStartPosition();
+    shell.setPointerDown(false, pos);
     const float dx = pos.x - start.x;
     const float dy = pos.y - start.y;
     if (std::abs(dx) > 32.0f || std::abs(dy) > 32.0f) {
       if (std::abs(dx) > std::abs(dy)) {
-        host.input().setSwipe(dx < 0 ? input::SwipeDirection::Left : input::SwipeDirection::Right);
+        shell.setSwipe(dx < 0 ? input::SwipeDirection::Left : input::SwipeDirection::Right);
       } else {
-        host.input().setSwipe(dy < 0 ? input::SwipeDirection::Up : input::SwipeDirection::Down);
+        shell.setSwipe(dy < 0 ? input::SwipeDirection::Up : input::SwipeDirection::Down);
       }
     }
     break;
   }
   case SDL_MOUSEMOTION:
-    host.input().setPointerPosition(Vec2{static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)});
+    shell.setPointerPosition(Vec2{static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)});
     break;
   default:
     break;
@@ -1052,9 +930,7 @@ void cleanup(SDLState& sdl) {
 
 int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
   const std::filesystem::path gameFile(gameFileString);
-  const std::filesystem::path root = canonicalSceneRoot(gameFile);
-  std::vector<std::unique_ptr<Scene>> scenes;
-  scenes.push_back(loadSceneFile(gameFile));
+  runtime::RuntimeShell shell(gameFile);
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
@@ -1083,7 +959,7 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
   }
 #endif
 
-  const auto& initialHost = scenes.back()->host;
+  const auto& initialHost = shell.host();
   const int width = static_cast<int>(initialHost.definition().logicalSize.x);
   const int height = static_cast<int>(initialHost.definition().logicalSize.y);
   sdl.window = SDL_CreateWindow(initialHost.definition().title.c_str(), SDL_WINDOWPOS_CENTERED,
@@ -1126,7 +1002,11 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
     sdl.audioSpec = desired;
   }
 
-  loadSDLAssets(sdl, scenes.back()->host, scenes.back()->file);
+  loadSDLAssets(sdl, shell);
+  std::filesystem::path reloadFile = shell.currentSceneFile();
+  std::filesystem::file_time_type lastWriteTime =
+      std::filesystem::exists(reloadFile) ? std::filesystem::last_write_time(reloadFile)
+                                          : std::filesystem::file_time_type{};
   double reloadPollSeconds = 0.0;
 
   bool running = true;
@@ -1139,54 +1019,65 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
     const double dt = static_cast<double>(now - last) / frequency;
     last = now;
 
-    Scene& scene = *scenes.back();
-    game::GameHost& host = scene.host;
-    host.input().beginFrame();
+    shell.beginFrame();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-      consumeEvent(host, event, running);
+      consumeEvent(shell, event, running);
     }
 
     reloadPollSeconds += dt;
     if (reloadPollSeconds >= 0.25) {
       reloadPollSeconds = 0.0;
-      if (std::filesystem::exists(scene.file)) {
-        const auto writeTime = std::filesystem::last_write_time(scene.file);
-        if (writeTime != scene.lastWriteTime) {
-          scene.lastWriteTime = writeTime;
+      if (std::filesystem::exists(reloadFile)) {
+        const auto writeTime = std::filesystem::last_write_time(reloadFile);
+        if (writeTime != lastWriteTime) {
+          lastWriteTime = writeTime;
           try {
             const auto result =
-                host.reloadSourcePreservingState(readFile(scene.file.string()), scene.file.string());
+                shell.host().reloadSourcePreservingState(readFile(reloadFile.string()), reloadFile.string());
             if (result.success) {
-              scene.reloadError.clear();
+              shell.clearStatusError();
               clearLoadedAssets(sdl);
-              loadSDLAssets(sdl, host, scene.file);
-              SDL_SetWindowTitle(sdl.window, host.definition().title.c_str());
-              SDL_RenderSetLogicalSize(sdl.renderer, static_cast<int>(host.definition().logicalSize.x),
-                                       static_cast<int>(host.definition().logicalSize.y));
-              std::cerr << "reloaded " << scene.file.string() << '\n';
+              loadSDLAssets(sdl, shell);
+              SDL_SetWindowTitle(sdl.window, shell.host().definition().title.c_str());
+              SDL_RenderSetLogicalSize(sdl.renderer, static_cast<int>(shell.host().definition().logicalSize.x),
+                                       static_cast<int>(shell.host().definition().logicalSize.y));
+              std::cerr << "reloaded " << reloadFile.string() << '\n';
             } else {
-              scene.reloadError = result.error;
-              std::cerr << "reload failed: " << scene.reloadError << '\n';
+              shell.setStatusError(result.error);
+              std::cerr << "reload failed: " << shell.statusError() << '\n';
             }
           } catch (const script::ScriptError& error) {
-            scene.reloadError = error.what();
-            std::cerr << "reload failed: " << scene.reloadError << '\n';
+            shell.setStatusError(error.what());
+            std::cerr << "reload failed: " << shell.statusError() << '\n';
           }
         }
       }
     }
 
-    host.tick(std::min(dt, 0.25));
-    processAudio(sdl, host);
-    processNavigation(sdl, scenes, root);
-    Scene& renderScene = *scenes.back();
-    const auto commands = renderScene.host.renderView();
-    renderCommands(sdl, renderScene.host.vm().interner(), commands);
-    drawReloadErrorOverlay(sdl.renderer, static_cast<int>(renderScene.host.definition().logicalSize.x),
-                           renderScene.reloadError);
+    shell.tick(std::min(dt, 0.25));
+    processAudio(sdl, shell.host());
+    try {
+      const std::string previousStatusError = shell.statusError();
+      if (shell.processNavigation()) {
+        activateScene(sdl, shell);
+        reloadFile = shell.currentSceneFile();
+        lastWriteTime = std::filesystem::exists(reloadFile) ? std::filesystem::last_write_time(reloadFile)
+                                                            : std::filesystem::file_time_type{};
+        std::cerr << "activated scene " << reloadFile.string() << '\n';
+      } else if (!shell.statusError().empty() && shell.statusError() != previousStatusError) {
+        std::cerr << "navigation failed: " << shell.statusError() << '\n';
+      }
+    } catch (const script::ScriptError& error) {
+      shell.setStatusError(error.what());
+      std::cerr << "navigation failed: " << shell.statusError() << '\n';
+    }
+    const auto commands = shell.renderView();
+    renderCommands(sdl, shell.host().vm().interner(), commands);
+    drawReloadErrorOverlay(sdl.renderer, static_cast<int>(shell.host().definition().logicalSize.x),
+                           shell.statusError());
     SDL_RenderPresent(sdl.renderer);
-    renderScene.host.input().endFrame();
+    shell.endFrame();
 
     ++frames;
     if (maxFrames >= 0 && frames >= maxFrames) {

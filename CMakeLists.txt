@@ -28,6 +28,7 @@ add_library(glyph_script
   src/render/RenderCompiler.cpp
   src/render/Renderer.cpp
   src/game/GameHost.cpp
+  src/runtime/RuntimeShell.cpp
 )
 
 target_include_directories(glyph_script PUBLIC src)
@@ -102,7 +103,13 @@ add_executable(glyph_game_tests
 )
 target_link_libraries(glyph_game_tests PRIVATE glyph_script)
 
+add_executable(glyph_runtime_tests
+  tests/runtime/RuntimeShellTests.cpp
+)
+target_link_libraries(glyph_runtime_tests PRIVATE glyph_script)
+
 enable_testing()
 add_test(NAME glyph_script_tests COMMAND glyph_script_tests)
 add_test(NAME glyph_render_tests COMMAND glyph_render_tests)
 add_test(NAME glyph_game_tests COMMAND glyph_game_tests)
+add_test(NAME glyph_runtime_tests COMMAND glyph_runtime_tests)
