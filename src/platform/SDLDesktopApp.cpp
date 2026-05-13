@@ -84,6 +84,7 @@ struct SDLState {
   SDL_Renderer* renderer = nullptr;
   SDL_AudioDeviceID audioDevice = 0;
   SDL_AudioSpec audioSpec {};
+  std::optional<SDL_FingerID> activeFinger;
   std::unordered_map<StringId, TextureAsset> textures;
   std::unordered_map<StringId, FontAsset> fonts;
   std::unordered_map<StringId, AudioAsset> audio;
@@ -826,7 +827,40 @@ void renderCommands(SDLState& sdl, const StringInterner& interner,
   }
 }
 
-void consumeEvent(runtime::RuntimeShell& shell, const SDL_Event& event, bool& running) {
+Vec2 normalizedTouchToLogical(const SDLState& sdl, float x, float y) {
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+  int windowWidth = 0;
+  int windowHeight = 0;
+  SDL_GetWindowSize(sdl.window, &windowWidth, &windowHeight);
+
+  const int windowX = static_cast<int>(std::round(x * static_cast<float>(windowWidth)));
+  const int windowY = static_cast<int>(std::round(y * static_cast<float>(windowHeight)));
+  float logicalX = 0.0f;
+  float logicalY = 0.0f;
+  SDL_RenderWindowToLogical(sdl.renderer, windowX, windowY, &logicalX, &logicalY);
+  return Vec2{logicalX, logicalY};
+#else
+  int logicalWidth = 0;
+  int logicalHeight = 0;
+  SDL_RenderGetLogicalSize(sdl.renderer, &logicalWidth, &logicalHeight);
+  return Vec2{x * static_cast<float>(logicalWidth), y * static_cast<float>(logicalHeight)};
+#endif
+}
+
+void setSwipeFromPointerRelease(runtime::RuntimeShell& shell, Vec2 pos) {
+  const Vec2 start = shell.input().pointerStartPosition();
+  const float dx = pos.x - start.x;
+  const float dy = pos.y - start.y;
+  if (std::abs(dx) > 32.0f || std::abs(dy) > 32.0f) {
+    if (std::abs(dx) > std::abs(dy)) {
+      shell.setSwipe(dx < 0 ? input::SwipeDirection::Left : input::SwipeDirection::Right);
+    } else {
+      shell.setSwipe(dy < 0 ? input::SwipeDirection::Up : input::SwipeDirection::Down);
+    }
+  }
+}
+
+void consumeEvent(SDLState& sdl, runtime::RuntimeShell& shell, const SDL_Event& event, bool& running) {
   switch (event.type) {
   case SDL_QUIT:
     running = false;
@@ -834,8 +868,10 @@ void consumeEvent(runtime::RuntimeShell& shell, const SDL_Event& event, bool& ru
   case SDL_KEYDOWN:
   case SDL_KEYUP: {
     const bool pressed = event.type == SDL_KEYDOWN;
-    if (event.key.keysym.sym == SDLK_ESCAPE) {
+    if (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_AC_BACK) {
       shell.setActionDown(":cancel", pressed);
+    }
+    if (event.key.keysym.sym == SDLK_ESCAPE) {
       if (pressed) {
         running = false;
       }
@@ -863,27 +899,54 @@ void consumeEvent(runtime::RuntimeShell& shell, const SDL_Event& event, bool& ru
     break;
   }
   case SDL_MOUSEBUTTONDOWN:
+    if (event.button.which == SDL_TOUCH_MOUSEID) {
+      break;
+    }
     shell.setActionDown(":tap", true);
     shell.setPointerDown(true, Vec2{static_cast<float>(event.button.x), static_cast<float>(event.button.y)});
     break;
   case SDL_MOUSEBUTTONUP: {
+    if (event.button.which == SDL_TOUCH_MOUSEID) {
+      break;
+    }
     shell.setActionDown(":tap", false);
     const Vec2 pos{static_cast<float>(event.button.x), static_cast<float>(event.button.y)};
-    const Vec2 start = shell.input().pointerStartPosition();
     shell.setPointerDown(false, pos);
-    const float dx = pos.x - start.x;
-    const float dy = pos.y - start.y;
-    if (std::abs(dx) > 32.0f || std::abs(dy) > 32.0f) {
-      if (std::abs(dx) > std::abs(dy)) {
-        shell.setSwipe(dx < 0 ? input::SwipeDirection::Left : input::SwipeDirection::Right);
-      } else {
-        shell.setSwipe(dy < 0 ? input::SwipeDirection::Up : input::SwipeDirection::Down);
-      }
-    }
+    setSwipeFromPointerRelease(shell, pos);
     break;
   }
   case SDL_MOUSEMOTION:
+    if (event.motion.which == SDL_TOUCH_MOUSEID) {
+      break;
+    }
     shell.setPointerPosition(Vec2{static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)});
+    break;
+  case SDL_FINGERDOWN: {
+    if (sdl.activeFinger.has_value()) {
+      break;
+    }
+    sdl.activeFinger = event.tfinger.fingerId;
+    const Vec2 pos = normalizedTouchToLogical(sdl, event.tfinger.x, event.tfinger.y);
+    shell.setActionDown(":tap", true);
+    shell.setPointerDown(true, pos);
+    break;
+  }
+  case SDL_FINGERUP: {
+    if (sdl.activeFinger != event.tfinger.fingerId) {
+      break;
+    }
+    const Vec2 pos = normalizedTouchToLogical(sdl, event.tfinger.x, event.tfinger.y);
+    shell.setActionDown(":tap", false);
+    shell.setPointerDown(false, pos);
+    setSwipeFromPointerRelease(shell, pos);
+    sdl.activeFinger.reset();
+    break;
+  }
+  case SDL_FINGERMOTION:
+    if (sdl.activeFinger != event.tfinger.fingerId) {
+      break;
+    }
+    shell.setPointerPosition(normalizedTouchToLogical(sdl, event.tfinger.x, event.tfinger.y));
     break;
   default:
     break;
@@ -1011,7 +1074,7 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
     shell.beginFrame();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-      consumeEvent(shell, event, running);
+      consumeEvent(sdl, shell, event, running);
     }
 
     reloadPollSeconds += dt;
