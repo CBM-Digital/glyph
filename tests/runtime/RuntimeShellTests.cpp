@@ -204,6 +204,7 @@ void testRuntimeShellPauseResume() {
   require(shell.host().state().map->at(ticks).number == 1.0, "runtime tick advances state");
 
   shell.pause();
+  require(shell.host().audio().paused(), "pause marks audio paused");
   shell.beginFrame();
   shell.tick(glyph::game::GameHost::fixedDt);
   shell.endFrame();
@@ -211,10 +212,41 @@ void testRuntimeShellPauseResume() {
   require(shell.host().state().map->at(ticks).number == 1.0, "pause blocks runtime tick");
 
   shell.resume();
+  require(!shell.host().audio().paused(), "resume marks audio resumed");
   shell.beginFrame();
   shell.tick(glyph::game::GameHost::fixedDt);
   shell.endFrame();
   require(shell.host().state().map->at(ticks).number == 2.0, "resume restores ticking");
+}
+
+void testRuntimeShellKeepsScenePausedAcrossNavigation() {
+  const auto root = runtimeTestRoot();
+  writeRuntimeFixture(root);
+
+  glyph::runtime::RuntimeShell shell(root / "index.glyph");
+
+  shell.beginFrame();
+  shell.setActionDown(":tap", true);
+  shell.tick(glyph::game::GameHost::fixedDt);
+  shell.pause();
+  require(shell.processNavigation(), "queued navigation can activate while paused");
+  shell.endFrame();
+
+  require(shell.paused(), "runtime stays paused after navigation");
+  require(shell.currentScenePath() == "next.glyph", "paused navigation switches scene");
+  require(shell.host().audio().paused(), "new scene audio starts paused");
+
+  const auto ticks = shell.host().vm().interner().intern(":ticks");
+  shell.beginFrame();
+  shell.tick(glyph::game::GameHost::fixedDt);
+  shell.endFrame();
+  require(shell.host().state().map->at(ticks).number == 0.0, "new scene does not tick while paused");
+
+  shell.resume();
+  shell.beginFrame();
+  shell.tick(glyph::game::GameHost::fixedDt);
+  shell.endFrame();
+  require(shell.host().state().map->at(ticks).number == 1.0, "new scene resumes from preserved state");
 }
 
 } // namespace
@@ -224,6 +256,7 @@ int main() {
     testRuntimeShellLoadsFramesInputAndNavigation();
     testRuntimeShellLoadsFromAbstractAssetSource();
     testRuntimeShellPauseResume();
+    testRuntimeShellKeepsScenePausedAcrossNavigation();
   } catch (const glyph::script::ScriptError& error) {
     std::cerr << "ScriptError: " << error.what() << '\n';
     return 1;

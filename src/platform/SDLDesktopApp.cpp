@@ -85,6 +85,8 @@ struct SDLState {
   SDL_AudioDeviceID audioDevice = 0;
   SDL_AudioSpec audioSpec {};
   std::optional<SDL_FingerID> activeFinger;
+  bool backgrounded = false;
+  bool nativeAudioPaused = false;
   std::unordered_map<StringId, TextureAsset> textures;
   std::unordered_map<StringId, FontAsset> fonts;
   std::unordered_map<StringId, AudioAsset> audio;
@@ -472,6 +474,48 @@ void activateScene(SDLState& sdl, runtime::RuntimeShell& shell) {
   clearLoadedAssets(sdl);
   loadSDLAssets(sdl, shell);
   applySceneWindow(sdl, shell.host());
+}
+
+void setNativeAudioPaused(SDLState& sdl, bool paused) {
+  if (sdl.nativeAudioPaused == paused) {
+    return;
+  }
+
+  if (sdl.audioDevice != 0) {
+    SDL_PauseAudioDevice(sdl.audioDevice, paused ? 1 : 0);
+  }
+#if GLYPH_HAS_SDL_MIXER
+  if (sdl.mixerOpen) {
+    if (paused) {
+      Mix_Pause(-1);
+      Mix_PauseMusic();
+    } else {
+      Mix_Resume(-1);
+      Mix_ResumeMusic();
+    }
+  }
+#endif
+  sdl.nativeAudioPaused = paused;
+}
+
+void setLifecyclePaused(SDLState& sdl, runtime::RuntimeShell& shell, bool paused) {
+  if (sdl.backgrounded == paused && shell.paused() == paused) {
+    setNativeAudioPaused(sdl, paused);
+    return;
+  }
+
+  sdl.backgrounded = paused;
+  if (paused) {
+    if (sdl.activeFinger.has_value()) {
+      shell.setActionDown(":tap", false);
+      shell.setPointerDown(false, shell.input().pointerPosition());
+      sdl.activeFinger.reset();
+    }
+    shell.pause();
+  } else {
+    shell.resume();
+  }
+  setNativeAudioPaused(sdl, paused);
 }
 
 std::string overlayText(std::string value) {
@@ -865,6 +909,21 @@ void consumeEvent(SDLState& sdl, runtime::RuntimeShell& shell, const SDL_Event& 
   case SDL_QUIT:
     running = false;
     break;
+  case SDL_APP_WILLENTERBACKGROUND:
+  case SDL_APP_DIDENTERBACKGROUND:
+    setLifecyclePaused(sdl, shell, true);
+    break;
+  case SDL_APP_DIDENTERFOREGROUND:
+    setLifecyclePaused(sdl, shell, false);
+    break;
+  case SDL_WINDOWEVENT:
+    if (event.window.event == SDL_WINDOWEVENT_MINIMIZED || event.window.event == SDL_WINDOWEVENT_HIDDEN) {
+      setLifecyclePaused(sdl, shell, true);
+    } else if (event.window.event == SDL_WINDOWEVENT_RESTORED ||
+               event.window.event == SDL_WINDOWEVENT_SHOWN) {
+      setLifecyclePaused(sdl, shell, false);
+    }
+    break;
   case SDL_KEYDOWN:
   case SDL_KEYUP: {
     const bool pressed = event.type == SDL_KEYDOWN;
@@ -1045,9 +1104,11 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
   }
   if (sdl.audioDevice != 0) {
     SDL_PauseAudioDevice(sdl.audioDevice, 0);
+    sdl.nativeAudioPaused = false;
 #if GLYPH_HAS_SDL_MIXER
   } else if (sdl.mixerOpen) {
     sdl.audioSpec = desired;
+    sdl.nativeAudioPaused = false;
 #endif
   } else {
     std::cerr << "warning: audio disabled: " << SDL_GetError() << '\n';
@@ -1075,6 +1136,12 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       consumeEvent(sdl, shell, event, running);
+    }
+
+    if (sdl.backgrounded) {
+      shell.endFrame();
+      SDL_Delay(50);
+      continue;
     }
 
     reloadPollSeconds += dt;
