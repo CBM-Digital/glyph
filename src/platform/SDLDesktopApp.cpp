@@ -1039,7 +1039,7 @@ void cleanup(SDLState& sdl) {
 
 } // namespace
 
-int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
+int runSDLApp(const std::string& gameFileString, int maxFrames, const SDLAppOptions& options) {
   const std::filesystem::path gameFile(gameFileString);
   runtime::RuntimeShell shell(gameFile);
 
@@ -1073,9 +1073,15 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
   const auto& initialHost = shell.host();
   const int width = static_cast<int>(initialHost.definition().logicalSize.x);
   const int height = static_cast<int>(initialHost.definition().logicalSize.y);
+  Uint32 windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI;
+  if (options.resizableWindow) {
+    windowFlags |= SDL_WINDOW_RESIZABLE;
+  }
+  if (options.fullscreen) {
+    windowFlags |= SDL_WINDOW_FULLSCREEN;
+  }
   sdl.window = SDL_CreateWindow(initialHost.definition().title.c_str(), SDL_WINDOWPOS_CENTERED,
-                                SDL_WINDOWPOS_CENTERED, width, height,
-                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                                SDL_WINDOWPOS_CENTERED, width, height, windowFlags);
   if (sdl.window) {
     sdl.renderer = SDL_CreateRenderer(sdl.window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!sdl.renderer) {
@@ -1144,8 +1150,10 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
       continue;
     }
 
-    reloadPollSeconds += dt;
-    if (reloadPollSeconds >= 0.25) {
+    if (options.hotReload) {
+      reloadPollSeconds += dt;
+    }
+    if (options.hotReload && reloadPollSeconds >= 0.25) {
       reloadPollSeconds = 0.0;
       if (auto writeTime = shell.assetSource().lastWriteTime(reloadPath)) {
         if (writeTime != lastWriteTime) {
@@ -1208,6 +1216,13 @@ int runSDLDesktop(const std::string& gameFileString, int maxFrames) {
 
   cleanup(sdl);
   return 0;
+}
+
+int runSDLDesktop(const std::string& gameFile, int maxFrames) {
+  SDLAppOptions options;
+  options.hotReload = true;
+  options.resizableWindow = true;
+  return runSDLApp(gameFile, maxFrames, options);
 }
 
 } // namespace glyph::platform
