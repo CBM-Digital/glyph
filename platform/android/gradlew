@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+set -eu
+
+if command -v gradle >/dev/null 2>&1; then
+  exec gradle "$@"
+fi
+
+REPO_GRADLE="$(cd "$(dirname "$0")/../.." && pwd)/build/mobile-deps/gradle-8.10.2/bin/gradle"
+if [ -x "$REPO_GRADLE" ]; then
+  if [ -z "${JAVA_HOME:-}" ] && [ -x "/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin/java" ]; then
+    export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+  fi
+  exec "$REPO_GRADLE" "$@"
+fi
+
+ANDROID_STUDIO_GRADLE=""
+for candidate in \
+  "/Applications/Android Studio.app/Contents/gradle"/gradle-*/bin/gradle \
+  "$HOME/Applications/Android Studio.app/Contents/gradle"/gradle-*/bin/gradle
+do
+  if [ -x "$candidate" ]; then
+    ANDROID_STUDIO_GRADLE="$candidate"
+  fi
+done
+
+if [ -n "$ANDROID_STUDIO_GRADLE" ]; then
+  exec "$ANDROID_STUDIO_GRADLE" "$@"
+fi
+
+cat >&2 <<'EOF'
+Gradle was not found.
+
+Install Gradle or Android Studio, then rerun this command from platform/android.
+This script uses a system Gradle install or Android Studio's bundled Gradle.
+EOF
+exit 127

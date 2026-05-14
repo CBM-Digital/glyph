@@ -1,2 +1,6 @@
 build/
 .DS_Store
+platform/android/.gradle/
+platform/android/local.properties
+platform/android/app/build/
+platform/android/app/.cxx

@@ -29,6 +29,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace glyph::platform {
@@ -556,16 +557,26 @@ std::array<std::string_view, 7> glyphFor(char c) {
     return {"111", "101", "101", "111", "001", "001", "111"};
   case 'A':
     return {"010", "101", "101", "111", "101", "101", "101"};
+  case 'B':
+    return {"110", "101", "101", "110", "101", "101", "110"};
   case 'C':
     return {"111", "100", "100", "100", "100", "100", "111"};
   case 'D':
     return {"110", "101", "101", "101", "101", "101", "110"};
   case 'E':
     return {"111", "100", "100", "111", "100", "100", "111"};
+  case 'F':
+    return {"111", "100", "100", "111", "100", "100", "100"};
+  case 'G':
+    return {"111", "100", "100", "101", "101", "101", "111"};
   case 'H':
     return {"101", "101", "101", "111", "101", "101", "101"};
   case 'I':
     return {"111", "010", "010", "010", "010", "010", "111"};
+  case 'J':
+    return {"001", "001", "001", "001", "001", "101", "111"};
+  case 'K':
+    return {"101", "101", "110", "100", "110", "101", "101"};
   case 'L':
     return {"100", "100", "100", "100", "100", "100", "111"};
   case 'M':
@@ -576,6 +587,8 @@ std::array<std::string_view, 7> glyphFor(char c) {
     return {"111", "101", "101", "101", "101", "101", "111"};
   case 'P':
     return {"111", "101", "101", "111", "100", "100", "100"};
+  case 'Q':
+    return {"111", "101", "101", "101", "111", "001", "001"};
   case 'R':
     return {"110", "101", "101", "110", "101", "101", "101"};
   case 'S':
@@ -584,8 +597,16 @@ std::array<std::string_view, 7> glyphFor(char c) {
     return {"111", "010", "010", "010", "010", "010", "010"};
   case 'U':
     return {"101", "101", "101", "101", "101", "101", "111"};
+  case 'V':
+    return {"101", "101", "101", "101", "101", "101", "010"};
+  case 'W':
+    return {"101", "101", "101", "101", "111", "111", "101"};
+  case 'X':
+    return {"101", "101", "101", "010", "101", "101", "101"};
   case 'Y':
     return {"101", "101", "101", "010", "010", "010", "010"};
+  case 'Z':
+    return {"111", "001", "001", "010", "100", "100", "111"};
   default:
     return {"000", "000", "000", "000", "000", "000", "000"};
   }
@@ -593,7 +614,7 @@ std::array<std::string_view, 7> glyphFor(char c) {
 
 void drawText(SDL_Renderer* renderer, const Transform& transform, const render::DrawCommand& command) {
   setColor(renderer, command.color.empty() ? "#fff" : command.color);
-  const float pixel = std::max(2.0f, static_cast<float>(command.scale) / 8.0f);
+  const float pixel = std::max(1.0f, static_cast<float>(command.scale) / 8.0f);
   float cursor = static_cast<float>(command.x);
   for (char raw : command.text) {
     const char c = static_cast<char>(std::toupper(static_cast<unsigned char>(raw)));
@@ -1039,10 +1060,7 @@ void cleanup(SDLState& sdl) {
 
 } // namespace
 
-int runSDLApp(const std::string& gameFileString, int maxFrames, const SDLAppOptions& options) {
-  const std::filesystem::path gameFile(gameFileString);
-  runtime::RuntimeShell shell(gameFile);
-
+int runSDLAppWithShell(runtime::RuntimeShell shell, int maxFrames, const SDLAppOptions& options) {
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
     return 1;
@@ -1216,6 +1234,15 @@ int runSDLApp(const std::string& gameFileString, int maxFrames, const SDLAppOpti
 
   cleanup(sdl);
   return 0;
+}
+
+int runSDLApp(const std::string& gameFileString, int maxFrames, const SDLAppOptions& options) {
+  return runSDLAppWithShell(runtime::RuntimeShell(std::filesystem::path(gameFileString)), maxFrames, options);
+}
+
+int runSDLApp(std::shared_ptr<assets::IAssetSource> assetSource, const std::string& entryPath, int maxFrames,
+              const SDLAppOptions& options) {
+  return runSDLAppWithShell(runtime::RuntimeShell(std::move(assetSource), entryPath), maxFrames, options);
 }
 
 int runSDLDesktop(const std::string& gameFile, int maxFrames) {

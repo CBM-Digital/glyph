@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-feature android:glEsVersion="0x00020000" android:required="false" />
+
+  <application
+      android:allowBackup="false"
+      android:extractNativeLibs="true"
+      android:hasFragileUserData="false"
+      android:label="@string/app_name"
+      android:theme="@style/GlyphTheme">
+    <activity
+        android:name=".GlyphActivity"
+        android:alwaysRetainTaskState="true"
+        android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:exported="true"
+        android:launchMode="singleTask"
+        android:screenOrientation="fullSensor">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

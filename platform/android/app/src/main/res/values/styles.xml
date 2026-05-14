@@ -1,0 +1,6 @@
+<resources>
+  <style name="GlyphTheme" parent="android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+    <item name="android:windowFullscreen">true</item>
+    <item name="android:windowNoTitle">true</item>
+  </style>
+</resources>

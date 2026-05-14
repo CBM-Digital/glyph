@@ -1,0 +1,11 @@
+sdk.dir=/Users/you/Library/Android/sdk
+glyph.sdl2Root=/absolute/path/to/SDL2
+
+# Optional, enables PNG/JPG texture loading on Android.
+# glyph.sdl2ImageRoot=/absolute/path/to/SDL2_image
+
+# Optional overrides if your installed SDK differs.
+# glyph.compileSdk=35
+# glyph.targetSdk=35
+# glyph.minSdk=23
+# glyph.abiFilters=arm64-v8a,x86_64

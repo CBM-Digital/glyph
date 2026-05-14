@@ -26,6 +26,7 @@ std::filesystem::path bundledArcadeEntry() {
 }
 
 int runGlyphIOS() {
+  SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
   SDL_SetMainReady();
 
   glyph::platform::SDLAppOptions options;

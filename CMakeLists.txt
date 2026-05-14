@@ -11,6 +11,11 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
 else()
   set(GLYPH_TARGET_IOS OFF)
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+  set(GLYPH_TARGET_ANDROID ON)
+else()
+  set(GLYPH_TARGET_ANDROID OFF)
+endif()
 
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -46,7 +51,7 @@ else()
   target_compile_options(glyph_script PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(NOT GLYPH_TARGET_IOS)
+if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID)
   add_executable(glyph src/app/Main.cpp)
   target_link_libraries(glyph PRIVATE glyph_script)
 
@@ -123,6 +128,164 @@ if(NOT GLYPH_TARGET_IOS)
   add_test(NAME glyph_runtime_tests COMMAND glyph_runtime_tests)
 endif()
 
+if(GLYPH_TARGET_ANDROID)
+  set(GLYPH_ANDROID_SDL2_ROOT "" CACHE PATH
+      "SDL2 source checkout or Android distribution root used for the Android host.")
+  set(GLYPH_ANDROID_SDL2_IMAGE_ROOT "" CACHE PATH
+      "Optional SDL2_image source checkout or Android distribution root used for PNG/JPG assets.")
+
+  if(NOT GLYPH_ANDROID_SDL2_ROOT AND DEFINED ENV{SDL2_ANDROID_ROOT})
+    set(GLYPH_ANDROID_SDL2_ROOT "$ENV{SDL2_ANDROID_ROOT}")
+  endif()
+  if(NOT GLYPH_ANDROID_SDL2_ROOT AND DEFINED ENV{SDL2_ROOT})
+    set(GLYPH_ANDROID_SDL2_ROOT "$ENV{SDL2_ROOT}")
+  endif()
+  if(NOT GLYPH_ANDROID_SDL2_IMAGE_ROOT AND DEFINED ENV{SDL2_IMAGE_ANDROID_ROOT})
+    set(GLYPH_ANDROID_SDL2_IMAGE_ROOT "$ENV{SDL2_IMAGE_ANDROID_ROOT}")
+  endif()
+  if(NOT GLYPH_ANDROID_SDL2_IMAGE_ROOT AND DEFINED ENV{SDL2_IMAGE_ROOT})
+    set(GLYPH_ANDROID_SDL2_IMAGE_ROOT "$ENV{SDL2_IMAGE_ROOT}")
+  endif()
+
+  function(glyph_import_android_sdl out_target root library_name)
+    if(NOT root)
+      set(${out_target} "" PARENT_SCOPE)
+      return()
+    endif()
+
+    set(include_candidates
+      "${root}/include"
+      "${root}/include/SDL2"
+      "${root}/android-project/app/jni/${library_name}/include"
+      "${root}/android-project/app/jni/SDL/include"
+    )
+    set(include_dir "")
+    foreach(candidate IN LISTS include_candidates)
+      if(EXISTS "${candidate}/SDL.h" OR EXISTS "${candidate}/SDL_image.h")
+        set(include_dir "${candidate}")
+        break()
+      endif()
+    endforeach()
+
+    set(library_candidates
+      "${root}/lib/${ANDROID_ABI}/lib${library_name}.so"
+      "${root}/lib/android/${ANDROID_ABI}/lib${library_name}.so"
+      "${root}/android-project/app/src/main/jniLibs/${ANDROID_ABI}/lib${library_name}.so"
+    )
+    set(library_path "")
+    foreach(candidate IN LISTS library_candidates)
+      if(EXISTS "${candidate}")
+        set(library_path "${candidate}")
+        break()
+      endif()
+    endforeach()
+
+    if(include_dir AND library_path)
+      set(imported_target "${library_name}_android_imported")
+      add_library(${imported_target} SHARED IMPORTED)
+      set_target_properties(${imported_target} PROPERTIES
+        IMPORTED_LOCATION "${library_path}"
+        INTERFACE_INCLUDE_DIRECTORIES "${include_dir}"
+      )
+      set(${out_target} "${imported_target}" PARENT_SCOPE)
+    else()
+      set(${out_target} "" PARENT_SCOPE)
+    endif()
+  endfunction()
+
+  if(NOT GLYPH_ANDROID_SDL2_ROOT)
+    message(FATAL_ERROR
+      "SDL2 Android root not configured. Set glyph.sdl2Root in platform/android/local.properties, "
+      "or pass -DGLYPH_ANDROID_SDL2_ROOT=/path/to/SDL2.")
+  endif()
+
+  if(EXISTS "${GLYPH_ANDROID_SDL2_ROOT}/CMakeLists.txt")
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${GLYPH_ANDROID_SDL2_ROOT}" "${CMAKE_BINARY_DIR}/SDL2" EXCLUDE_FROM_ALL)
+    if(TARGET SDL2::SDL2)
+      set(GLYPH_ANDROID_SDL2_TARGET SDL2::SDL2)
+    elseif(TARGET SDL2)
+      set(GLYPH_ANDROID_SDL2_TARGET SDL2)
+    endif()
+  endif()
+  if(NOT GLYPH_ANDROID_SDL2_TARGET)
+    glyph_import_android_sdl(GLYPH_ANDROID_SDL2_TARGET "${GLYPH_ANDROID_SDL2_ROOT}" SDL2)
+  endif()
+  if(NOT GLYPH_ANDROID_SDL2_TARGET)
+    message(FATAL_ERROR
+      "Unable to find or build SDL2 for Android from ${GLYPH_ANDROID_SDL2_ROOT}. "
+      "Use an SDL2 source checkout with CMake support or an Android distribution containing "
+      "include/ and lib/<abi>/libSDL2.so.")
+  endif()
+
+  set(GLYPH_ANDROID_SDL2_IMAGE_OPTIONS
+    SDL2IMAGE_INSTALL
+    SDL2IMAGE_SAMPLES
+    SDL2IMAGE_TESTS
+    SDL2IMAGE_AVIF
+    SDL2IMAGE_GIF
+    SDL2IMAGE_JXL
+    SDL2IMAGE_LBM
+    SDL2IMAGE_PCX
+    SDL2IMAGE_PNM
+    SDL2IMAGE_QOI
+    SDL2IMAGE_SVG
+    SDL2IMAGE_TGA
+    SDL2IMAGE_TIF
+    SDL2IMAGE_WEBP
+    SDL2IMAGE_XCF
+    SDL2IMAGE_XPM
+    SDL2IMAGE_XV
+  )
+  foreach(option IN LISTS GLYPH_ANDROID_SDL2_IMAGE_OPTIONS)
+    set(${option} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  set(SDL2IMAGE_BACKEND_STB ON CACHE BOOL "" FORCE)
+  set(SDL2IMAGE_PNG ON CACHE BOOL "" FORCE)
+  set(SDL2IMAGE_JPG ON CACHE BOOL "" FORCE)
+
+  set(GLYPH_ANDROID_HAS_SDL_IMAGE OFF)
+  if(GLYPH_ANDROID_SDL2_IMAGE_ROOT)
+    if(EXISTS "${GLYPH_ANDROID_SDL2_IMAGE_ROOT}/CMakeLists.txt")
+      add_subdirectory("${GLYPH_ANDROID_SDL2_IMAGE_ROOT}" "${CMAKE_BINARY_DIR}/SDL2_image" EXCLUDE_FROM_ALL)
+      if(TARGET SDL2_image::SDL2_image)
+        set(GLYPH_ANDROID_SDL2_IMAGE_TARGET SDL2_image::SDL2_image)
+      elseif(TARGET SDL2_image)
+        set(GLYPH_ANDROID_SDL2_IMAGE_TARGET SDL2_image)
+      endif()
+    endif()
+    if(NOT GLYPH_ANDROID_SDL2_IMAGE_TARGET)
+      glyph_import_android_sdl(GLYPH_ANDROID_SDL2_IMAGE_TARGET "${GLYPH_ANDROID_SDL2_IMAGE_ROOT}" SDL2_image)
+    endif()
+    if(GLYPH_ANDROID_SDL2_IMAGE_TARGET)
+      set(GLYPH_ANDROID_HAS_SDL_IMAGE ON)
+    else()
+      message(WARNING
+        "SDL2_image Android root was set but no usable SDL2_image target/library was found; "
+        "PNG/JPG textures will use fallback sprites.")
+    endif()
+  endif()
+
+  add_library(glyph SHARED
+    src/platform/AndroidApp.cpp
+    src/platform/SDLDesktopApp.cpp
+  )
+  target_link_libraries(glyph PRIVATE
+    glyph_script
+    ${GLYPH_ANDROID_SDL2_TARGET}
+  )
+  if(GLYPH_ANDROID_HAS_SDL_IMAGE)
+    target_link_libraries(glyph PRIVATE ${GLYPH_ANDROID_SDL2_IMAGE_TARGET})
+  endif()
+  target_compile_definitions(glyph PRIVATE
+    GLYPH_HAS_SDL=1
+    GLYPH_HAS_SDL_IMAGE=$<BOOL:${GLYPH_ANDROID_HAS_SDL_IMAGE}>
+    GLYPH_HAS_SDL_TTF=0
+    GLYPH_HAS_SDL_MIXER=0
+  )
+endif()
+
 if(GLYPH_TARGET_IOS)
   set(GLYPH_IOS_FRAMEWORK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ios/Frameworks" CACHE PATH
       "Directory containing SDL2 iOS .framework or .xcframework bundles.")
@@ -130,6 +293,58 @@ if(GLYPH_TARGET_IOS)
       "Optional SDL2 iOS distribution root. Checked before common repository locations.")
   set(GLYPH_IOS_SDL2_IMAGE_ROOT "" CACHE PATH
       "Optional SDL2_image iOS distribution root. Checked before common repository locations.")
+
+  if(GLYPH_IOS_SDL2_ROOT AND EXISTS "${GLYPH_IOS_SDL2_ROOT}/CMakeLists.txt")
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+    add_subdirectory("${GLYPH_IOS_SDL2_ROOT}" "${CMAKE_BINARY_DIR}/SDL2-ios" EXCLUDE_FROM_ALL)
+    if(TARGET SDL2::SDL2)
+      set(GLYPH_IOS_SDL2_TARGET SDL2::SDL2)
+    elseif(TARGET SDL2-static)
+      set(GLYPH_IOS_SDL2_TARGET SDL2-static)
+    elseif(TARGET SDL2)
+      set(GLYPH_IOS_SDL2_TARGET SDL2)
+    endif()
+  endif()
+
+  if(GLYPH_IOS_SDL2_IMAGE_ROOT AND EXISTS "${GLYPH_IOS_SDL2_IMAGE_ROOT}/CMakeLists.txt")
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_TESTS OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_BACKEND_STB ON CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_BACKEND_IMAGEIO OFF CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_PNG ON CACHE BOOL "" FORCE)
+    set(SDL2IMAGE_JPG ON CACHE BOOL "" FORCE)
+    set(GLYPH_IOS_SDL2_IMAGE_OPTIONS
+      SDL2IMAGE_AVIF
+      SDL2IMAGE_GIF
+      SDL2IMAGE_JXL
+      SDL2IMAGE_LBM
+      SDL2IMAGE_PCX
+      SDL2IMAGE_PNM
+      SDL2IMAGE_QOI
+      SDL2IMAGE_SVG
+      SDL2IMAGE_TGA
+      SDL2IMAGE_TIF
+      SDL2IMAGE_WEBP
+      SDL2IMAGE_XCF
+      SDL2IMAGE_XPM
+      SDL2IMAGE_XV
+    )
+    foreach(option IN LISTS GLYPH_IOS_SDL2_IMAGE_OPTIONS)
+      set(${option} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    add_subdirectory("${GLYPH_IOS_SDL2_IMAGE_ROOT}" "${CMAKE_BINARY_DIR}/SDL2_image-ios" EXCLUDE_FROM_ALL)
+    if(TARGET SDL2_image::SDL2_image)
+      set(GLYPH_IOS_SDL2_IMAGE_TARGET SDL2_image::SDL2_image)
+    elseif(TARGET SDL2_image)
+      set(GLYPH_IOS_SDL2_IMAGE_TARGET SDL2_image)
+    endif()
+  endif()
 
   function(glyph_resolve_ios_framework out_var framework_name)
     set(search_roots)
@@ -181,15 +396,19 @@ if(GLYPH_TARGET_IOS)
     set(${out_var} "" PARENT_SCOPE)
   endfunction()
 
-  glyph_resolve_ios_framework(GLYPH_IOS_SDL2_FRAMEWORK SDL2)
-  glyph_resolve_ios_framework(GLYPH_IOS_SDL2_IMAGE_FRAMEWORK SDL2_image)
+  if(NOT GLYPH_IOS_SDL2_TARGET)
+    glyph_resolve_ios_framework(GLYPH_IOS_SDL2_FRAMEWORK SDL2)
+  endif()
+  if(NOT GLYPH_IOS_SDL2_IMAGE_TARGET)
+    glyph_resolve_ios_framework(GLYPH_IOS_SDL2_IMAGE_FRAMEWORK SDL2_image)
+  endif()
 
-  if(NOT GLYPH_IOS_SDL2_FRAMEWORK)
+  if(NOT GLYPH_IOS_SDL2_TARGET AND NOT GLYPH_IOS_SDL2_FRAMEWORK)
     message(FATAL_ERROR
       "SDL2 iOS framework not found. Put SDL2.framework or SDL2.xcframework under "
       "ios/Frameworks, or configure with -DGLYPH_IOS_SDL2_ROOT=/path/to/SDL2.")
   endif()
-  if(NOT GLYPH_IOS_SDL2_IMAGE_FRAMEWORK)
+  if(NOT GLYPH_IOS_SDL2_IMAGE_TARGET AND NOT GLYPH_IOS_SDL2_IMAGE_FRAMEWORK)
     message(FATAL_ERROR
       "SDL2_image iOS framework not found. The bundled arcade sample uses PNG assets. Put "
       "SDL2_image.framework or SDL2_image.xcframework under ios/Frameworks, or configure "
@@ -225,11 +444,22 @@ if(GLYPH_TARGET_IOS)
     src/platform/SDLDesktopApp.cpp
     ${GLYPH_IOS_ARCADE_RESOURCES}
   )
+  set(GLYPH_IOS_BUNDLE_DEVELOPMENT_LANGUAGE "en")
+  set(GLYPH_IOS_BUNDLE_EXECUTABLE "glyph_ios")
+  set(GLYPH_IOS_BUNDLE_IDENTIFIER "com.glyph.runtime")
   target_link_libraries(glyph_ios PRIVATE glyph_script)
-  target_include_directories(glyph_ios PRIVATE
-    "${GLYPH_IOS_SDL2_FRAMEWORK}/Headers"
-    "${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}/Headers"
-  )
+  if(GLYPH_IOS_SDL2_TARGET)
+    target_link_libraries(glyph_ios PRIVATE ${GLYPH_IOS_SDL2_TARGET})
+  else()
+    target_include_directories(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_FRAMEWORK}/Headers")
+    target_link_libraries(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_FRAMEWORK}")
+  endif()
+  if(GLYPH_IOS_SDL2_IMAGE_TARGET)
+    target_link_libraries(glyph_ios PRIVATE ${GLYPH_IOS_SDL2_IMAGE_TARGET})
+  else()
+    target_include_directories(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}/Headers")
+    target_link_libraries(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}")
+  endif()
   target_compile_definitions(glyph_ios PRIVATE
     GLYPH_HAS_SDL=1
     GLYPH_HAS_SDL_IMAGE=1
@@ -237,8 +467,6 @@ if(GLYPH_TARGET_IOS)
     GLYPH_HAS_SDL_MIXER=0
   )
   target_link_libraries(glyph_ios PRIVATE
-    "${GLYPH_IOS_SDL2_FRAMEWORK}"
-    "${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}"
     "-framework AudioToolbox"
     "-framework AVFoundation"
     "-framework CoreAudio"
@@ -259,7 +487,11 @@ if(GLYPH_TARGET_IOS)
     XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "13.0"
     XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.glyph.runtime"
     XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
-    XCODE_EMBED_FRAMEWORKS "${GLYPH_IOS_SDL2_FRAMEWORK};${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}"
     XCODE_EMBED_FRAMEWORKS_CODE_SIGN_ON_COPY TRUE
   )
+  if(GLYPH_IOS_SDL2_FRAMEWORK OR GLYPH_IOS_SDL2_IMAGE_FRAMEWORK)
+    set_target_properties(glyph_ios PROPERTIES
+      XCODE_EMBED_FRAMEWORKS "${GLYPH_IOS_SDL2_FRAMEWORK};${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}"
+    )
+  endif()
 endif()
