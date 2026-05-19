@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <functional>
 #include <random>
 #include <sstream>
@@ -138,7 +139,16 @@ std::map<StringId, Value> makeMap(VM& vm,
 }
 
 std::mt19937& rng() {
-  static std::mt19937 generator{std::random_device{}()};
+  static std::mt19937 generator = [] {
+    if (const char* seed = std::getenv("GLYPH_RANDOM_SEED")) {
+      char* end = nullptr;
+      const auto parsed = std::strtoul(seed, &end, 10);
+      if (end != seed) {
+        return std::mt19937{static_cast<std::mt19937::result_type>(parsed)};
+      }
+    }
+    return std::mt19937{std::random_device{}()};
+  }();
   return generator;
 }
 

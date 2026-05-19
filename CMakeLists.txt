@@ -116,6 +116,32 @@ if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID)
   )
   target_link_libraries(glyph_game_tests PRIVATE glyph_script)
 
+  add_executable(glyph_visual_snapshot_tests
+    tests/integration/PixelSnapshotTests.cpp
+  )
+  target_link_libraries(glyph_visual_snapshot_tests PRIVATE glyph_script)
+  if(SDL2_FOUND AND SDL2_IMAGE_FOUND)
+    target_compile_definitions(glyph_visual_snapshot_tests PRIVATE GLYPH_VISUAL_SNAPSHOT_HAS_SDL=1)
+    target_include_directories(glyph_visual_snapshot_tests PRIVATE
+      ${SDL2_INCLUDE_DIRS}
+      ${SDL2_IMAGE_INCLUDE_DIRS}
+    )
+    target_link_directories(glyph_visual_snapshot_tests PRIVATE
+      ${SDL2_LIBRARY_DIRS}
+      ${SDL2_IMAGE_LIBRARY_DIRS}
+    )
+    target_link_libraries(glyph_visual_snapshot_tests PRIVATE
+      ${SDL2_LIBRARIES}
+      ${SDL2_IMAGE_LIBRARIES}
+    )
+    target_compile_options(glyph_visual_snapshot_tests PRIVATE
+      ${SDL2_CFLAGS_OTHER}
+      ${SDL2_IMAGE_CFLAGS_OTHER}
+    )
+  else()
+    target_compile_definitions(glyph_visual_snapshot_tests PRIVATE GLYPH_VISUAL_SNAPSHOT_HAS_SDL=0)
+  endif()
+
   add_executable(glyph_runtime_tests
     tests/runtime/RuntimeShellTests.cpp
   )
@@ -125,6 +151,7 @@ if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID)
   add_test(NAME glyph_script_tests COMMAND glyph_script_tests)
   add_test(NAME glyph_render_tests COMMAND glyph_render_tests)
   add_test(NAME glyph_game_tests COMMAND glyph_game_tests)
+  add_test(NAME glyph_visual_snapshot_tests COMMAND glyph_visual_snapshot_tests)
   add_test(NAME glyph_runtime_tests COMMAND glyph_runtime_tests)
 endif()
 
