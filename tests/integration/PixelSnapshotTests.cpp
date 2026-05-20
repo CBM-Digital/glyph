@@ -7,6 +7,9 @@
 #if GLYPH_VISUAL_SNAPSHOT_HAS_SDL
 #include <SDL.h>
 #include <SDL_image.h>
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+#include <SDL_ttf.h>
+#endif
 #endif
 
 #include <algorithm>
@@ -148,8 +151,6 @@ void requireSnapshot(const Bitmap& actual, const std::string& name) {
 #if GLYPH_VISUAL_SNAPSHOT_HAS_SDL
 
 constexpr float pi = 3.14159265358979323846f;
-constexpr int captureWidth = 160;
-constexpr int captureHeight = 120;
 
 struct Color {
   glyph::u8 r = 255;
@@ -171,6 +172,13 @@ struct Texture {
   SDL_Texture* texture = nullptr;
   int w = 0;
   int h = 0;
+};
+
+struct Font {
+  std::string path;
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+  std::map<int, TTF_Font*> sizes;
+#endif
 };
 
 int hexValue(char c) {
@@ -330,6 +338,22 @@ void drawText(SDL_Renderer* renderer, const Transform& transform,
   }
 }
 
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+TTF_Font* ttfFont(Font& font, int size) {
+  if (font.path.empty()) {
+    return nullptr;
+  }
+  size = std::max(8, size);
+  auto found = font.sizes.find(size);
+  if (found != font.sizes.end()) {
+    return found->second;
+  }
+  TTF_Font* loaded = TTF_OpenFont(font.path.c_str(), size);
+  font.sizes[size] = loaded;
+  return loaded;
+}
+#endif
+
 void drawCircle(SDL_Renderer* renderer, const Transform& transform,
                 const glyph::render::DrawCommand& command) {
   setColor(renderer, command.color.empty() ? "#fff" : command.color);
@@ -408,56 +432,46 @@ public:
     const int imageFlags = IMG_INIT_PNG;
     require((IMG_Init(imageFlags) & imageFlags) == imageFlags,
             std::string("IMG_Init: ") + IMG_GetError());
-    surface_ = SDL_CreateRGBSurfaceWithFormat(0, captureWidth, captureHeight, 32,
-                                              SDL_PIXELFORMAT_ARGB8888);
-    require(surface_ != nullptr, std::string("SDL_CreateRGBSurfaceWithFormat: ") + SDL_GetError());
-    renderer_ = SDL_CreateSoftwareRenderer(surface_);
-    require(renderer_ != nullptr, std::string("SDL_CreateSoftwareRenderer: ") + SDL_GetError());
-    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+    require(TTF_Init() == 0, std::string("TTF_Init: ") + TTF_GetError());
+#endif
   }
 
   ~ArcadeScreen() {
-    for (auto& [_, texture] : textures_) {
-      if (texture.texture) {
-        SDL_DestroyTexture(texture.texture);
-      }
-    }
-    if (renderer_) {
-      SDL_DestroyRenderer(renderer_);
-    }
-    if (surface_) {
-      SDL_FreeSurface(surface_);
-    }
+    destroyAssets();
+    destroySurface();
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+    TTF_Quit();
+#endif
     IMG_Quit();
     SDL_Quit();
   }
 
-  void loadTextures(glyph::game::GameHost& host, const std::filesystem::path& scene) {
-    for (auto& [_, texture] : textures_) {
-      if (texture.texture) {
-        SDL_DestroyTexture(texture.texture);
-      }
-    }
-    textures_.clear();
+  void loadAssets(glyph::game::GameHost& host, const std::filesystem::path& scene) {
+    const int logicalWidth = static_cast<int>(host.definition().logicalSize.x);
+    const int logicalHeight = static_cast<int>(host.definition().logicalSize.y);
+    ensureSurface(logicalWidth, logicalHeight);
+    destroyAssets();
 
     for (const auto& asset : host.assets().assets()) {
-      if (asset.type != glyph::assets::AssetType::Texture) {
-        continue;
-      }
       std::filesystem::path path(asset.path);
       if (!path.is_absolute()) {
         path = scene.parent_path() / path;
       }
-      SDL_Surface* loaded = IMG_Load(path.string().c_str());
-      require(loaded != nullptr, std::string("IMG_Load ") + path.string() + ": " + IMG_GetError());
-      SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, loaded);
-      const int width = loaded->w;
-      const int height = loaded->h;
-      SDL_FreeSurface(loaded);
-      require(texture != nullptr,
-              std::string("SDL_CreateTextureFromSurface ") + path.string() + ": " + SDL_GetError());
-      SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
-      textures_[asset.name] = Texture{texture, width, height};
+      if (asset.type == glyph::assets::AssetType::Texture) {
+        SDL_Surface* loaded = IMG_Load(path.string().c_str());
+        require(loaded != nullptr, std::string("IMG_Load ") + path.string() + ": " + IMG_GetError());
+        SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, loaded);
+        const int width = loaded->w;
+        const int height = loaded->h;
+        SDL_FreeSurface(loaded);
+        require(texture != nullptr,
+                std::string("SDL_CreateTextureFromSurface ") + path.string() + ": " + SDL_GetError());
+        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+        textures_[asset.name] = Texture{texture, width, height};
+      } else if (asset.type == glyph::assets::AssetType::Font) {
+        fonts_[asset.name] = Font{path.string()};
+      }
     }
   }
 
@@ -465,6 +479,7 @@ public:
                 const std::vector<glyph::render::DrawCommand>& commands) {
     const int logicalWidth = static_cast<int>(host.definition().logicalSize.x);
     const int logicalHeight = static_cast<int>(host.definition().logicalSize.y);
+    ensureSurface(logicalWidth, logicalHeight);
     SDL_RenderSetLogicalSize(renderer_, logicalWidth, logicalHeight);
 
     SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
@@ -504,6 +519,11 @@ public:
         drawSprite(interner, current, command);
         break;
       case glyph::render::DrawCommandType::Text:
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+        if (drawTTFText(current, command)) {
+          break;
+        }
+#endif
         drawText(renderer_, current, command);
         break;
       case glyph::render::DrawCommandType::PushCamera:
@@ -532,12 +552,12 @@ public:
     }
     SDL_RenderPresent(renderer_);
 
-    std::vector<std::uint32_t> raw(static_cast<std::size_t>(captureWidth * captureHeight));
+    std::vector<std::uint32_t> raw(static_cast<std::size_t>(targetWidth_ * targetHeight_));
     require(SDL_RenderReadPixels(renderer_, nullptr, SDL_PIXELFORMAT_ARGB8888, raw.data(),
-                                 captureWidth * static_cast<int>(sizeof(std::uint32_t))) == 0,
+                                 targetWidth_ * static_cast<int>(sizeof(std::uint32_t))) == 0,
             std::string("SDL_RenderReadPixels: ") + SDL_GetError());
 
-    Bitmap bitmap = makeBitmap(captureWidth, captureHeight);
+    Bitmap bitmap = makeBitmap(targetWidth_, targetHeight_);
     for (std::size_t i = 0; i < raw.size(); ++i) {
       const std::uint32_t pixel = raw[i];
       bitmap.pixels[i] = Pixel{static_cast<glyph::u8>((pixel >> 16u) & 0xffu),
@@ -548,6 +568,54 @@ public:
   }
 
 private:
+  void ensureSurface(int width, int height) {
+    require(width > 0 && height > 0, "snapshot surface size must be positive");
+    if (surface_ && renderer_ && width == targetWidth_ && height == targetHeight_) {
+      return;
+    }
+    destroyAssets();
+    destroySurface();
+    surface_ = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888);
+    require(surface_ != nullptr, std::string("SDL_CreateRGBSurfaceWithFormat: ") + SDL_GetError());
+    renderer_ = SDL_CreateSoftwareRenderer(surface_);
+    require(renderer_ != nullptr, std::string("SDL_CreateSoftwareRenderer: ") + SDL_GetError());
+    SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);
+    targetWidth_ = width;
+    targetHeight_ = height;
+  }
+
+  void destroyAssets() {
+    for (auto& [_, texture] : textures_) {
+      if (texture.texture) {
+        SDL_DestroyTexture(texture.texture);
+      }
+    }
+    textures_.clear();
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+    for (auto& [_, font] : fonts_) {
+      for (auto& [__, size] : font.sizes) {
+        if (size) {
+          TTF_CloseFont(size);
+        }
+      }
+    }
+#endif
+    fonts_.clear();
+  }
+
+  void destroySurface() {
+    if (renderer_) {
+      SDL_DestroyRenderer(renderer_);
+      renderer_ = nullptr;
+    }
+    if (surface_) {
+      SDL_FreeSurface(surface_);
+      surface_ = nullptr;
+    }
+    targetWidth_ = 0;
+    targetHeight_ = 0;
+  }
+
   void drawSprite(const glyph::StringInterner& interner, const Transform& current,
                   const glyph::render::DrawCommand& command) {
     const auto found = textures_.find(command.image);
@@ -601,9 +669,43 @@ private:
     SDL_RenderCopyExF(renderer_, found->second.texture, &src, &dst, command.rotation, &pivot, flip);
   }
 
+#if GLYPH_VISUAL_SNAPSHOT_HAS_TTF
+  bool drawTTFText(const Transform& current, const glyph::render::DrawCommand& command) {
+    auto found = fonts_.find(command.font);
+    if (found == fonts_.end()) {
+      return false;
+    }
+    const Color color = parseColor(command.color.empty() ? "#fff" : command.color);
+    const int size = static_cast<int>(std::max(8.0, command.scale));
+    TTF_Font* font = ttfFont(found->second, size);
+    if (!font) {
+      return false;
+    }
+    SDL_Color sdlColor{color.r, color.g, color.b, color.a};
+    SDL_Surface* surface = TTF_RenderUTF8_Blended(font, command.text.c_str(), sdlColor);
+    if (!surface) {
+      return false;
+    }
+    SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer_, surface);
+    const SDL_FPoint p = apply(current, static_cast<float>(command.x), static_cast<float>(command.y));
+    SDL_FRect dst{p.x, p.y, static_cast<float>(surface->w), static_cast<float>(surface->h)};
+    SDL_FreeSurface(surface);
+    if (!texture) {
+      return false;
+    }
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+    SDL_RenderCopyF(renderer_, texture, nullptr, &dst);
+    SDL_DestroyTexture(texture);
+    return true;
+  }
+#endif
+
   SDL_Surface* surface_ = nullptr;
   SDL_Renderer* renderer_ = nullptr;
+  int targetWidth_ = 0;
+  int targetHeight_ = 0;
   std::unordered_map<glyph::StringId, Texture> textures_;
+  std::unordered_map<glyph::StringId, Font> fonts_;
 };
 
 struct InputStep {
@@ -713,7 +815,7 @@ void testArcadeEndToEndSnapshots() {
   for (const auto& scenario : arcadeScenarios()) {
     glyph::game::GameHost host;
     host.loadSource(readFile(scenario.scene), scenario.scene.string());
-    screen.loadTextures(host, scenario.scene);
+    screen.loadAssets(host, scenario.scene);
 
     for (const auto& step : scenario.steps) {
       advance(host, step);

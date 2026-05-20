@@ -1,8 +1,12 @@
 # Arcade snapshot tests
 
 `glyph_visual_snapshot_tests` loads the real `examples/arcade` games, drives timed input
-steps, renders through SDL's software renderer, and compares 160x120 PPM screenshots
-under `tests/integration/snapshots/arcade`.
+steps, renders through SDL's software renderer at each game's logical resolution, and
+compares PPM screenshots under `tests/integration/snapshots/arcade`.
+
+When SDL_ttf is available, the harness uses the same TrueType text path as the desktop
+runtime so text stays representative of player-facing builds. Without SDL_ttf it falls
+back to the built-in bitmap text renderer.
 
 Run the comparison:
 

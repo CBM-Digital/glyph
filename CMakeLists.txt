@@ -125,21 +125,31 @@ if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID)
     target_include_directories(glyph_visual_snapshot_tests PRIVATE
       ${SDL2_INCLUDE_DIRS}
       ${SDL2_IMAGE_INCLUDE_DIRS}
+      ${SDL2_TTF_INCLUDE_DIRS}
     )
     target_link_directories(glyph_visual_snapshot_tests PRIVATE
       ${SDL2_LIBRARY_DIRS}
       ${SDL2_IMAGE_LIBRARY_DIRS}
+      ${SDL2_TTF_LIBRARY_DIRS}
     )
     target_link_libraries(glyph_visual_snapshot_tests PRIVATE
       ${SDL2_LIBRARIES}
       ${SDL2_IMAGE_LIBRARIES}
+      ${SDL2_TTF_LIBRARIES}
     )
     target_compile_options(glyph_visual_snapshot_tests PRIVATE
       ${SDL2_CFLAGS_OTHER}
       ${SDL2_IMAGE_CFLAGS_OTHER}
+      ${SDL2_TTF_CFLAGS_OTHER}
     )
+    if(SDL2_TTF_FOUND)
+      target_compile_definitions(glyph_visual_snapshot_tests PRIVATE GLYPH_VISUAL_SNAPSHOT_HAS_TTF=1)
+    else()
+      target_compile_definitions(glyph_visual_snapshot_tests PRIVATE GLYPH_VISUAL_SNAPSHOT_HAS_TTF=0)
+    endif()
   else()
     target_compile_definitions(glyph_visual_snapshot_tests PRIVATE GLYPH_VISUAL_SNAPSHOT_HAS_SDL=0)
+    target_compile_definitions(glyph_visual_snapshot_tests PRIVATE GLYPH_VISUAL_SNAPSHOT_HAS_TTF=0)
   endif()
 
   add_executable(glyph_runtime_tests
