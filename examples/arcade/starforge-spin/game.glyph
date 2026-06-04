@@ -16,8 +16,8 @@
   :update update
   :view view)
 
-(def initial {:t 0 :phase :play :score 0 :heat 28 :rot 0 :dir 1
-              :pa 35 :pr 180 :pc 0 :flash 0 :message "Tap reverses spin, hold expands shield"})
+(def initial {:t 0 :phase :play :score 0 :streak 0 :heat 28 :rot 0 :dir 1
+              :pa 35 :pr 180 :pc 0 :surge 0 :flash 0 :message "Tap reverses spin, hold expands shield"})
 
 (defn frame [n]
   (case (mod n 8)
@@ -63,16 +63,21 @@
   (let [match (= (:pc state) (shield-color state))]
     (if match
       (do
-        (sound/play :blip :volume 0.82 :pitch 1.18)
+        (sound/play :blip :volume 0.82 :pitch (+ 1.05 (* (:streak state) 0.05)))
         (spawn-particle
-          (assoc state :score (+ (:score state) 12) :heat (max 0 (- (:heat state) 8)) :flash 1)
-          "Core cooled"))
+          (assoc state
+            :score (+ (:score state) 12 (* (:streak state) 3) (if (> (:surge state) 0) 6 0))
+            :streak (min 9 (+ (:streak state) 1))
+            :heat (max 0 (- (:heat state) (+ 8 (:streak state))))
+            :surge (if (>= (+ (:streak state) 1) 5) 3.8 (:surge state))
+            :flash 1)
+          (if (>= (+ (:streak state) 1) 5) "Surge window open" "Core cooled")))
       (do
         (sound/play :pop :volume 0.62)
         (let [heat (+ (:heat state) 24)]
           (if (>= heat 100)
-            (assoc state :phase :over :heat heat :message "Forge overheated" :flash 1)
-            (spawn-particle (assoc state :heat heat :flash 1) "Wrong color")))))))
+            (assoc state :phase :over :heat heat :streak 0 :surge 0 :message "Forge overheated" :flash 1)
+            (spawn-particle (assoc state :heat heat :streak 0 :surge 0 :flash 1) "Wrong color")))))))
 
 (defn update [dt state]
   (cond
@@ -81,10 +86,17 @@
     (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
     else
       (let [dir (if (or (pressed? :tap) (pointer-pressed?)) (* -1 (:dir state)) (:dir state))
-            heat (clamp (+ (:heat state) (* dt (if (or (held? :tap) (pointer-held?)) 9 -3))) 0 110)
-            rot (mod (+ (:rot state) (* dir dt (+ 96 (* (:score state) 0.5)))) 360)
-            pr (- (:pr state) (* dt (+ 62 (* (:score state) 0.2))))
-            moved (assoc state :t (+ (:t state) dt) :dir dir :heat heat :rot rot :pr pr :flash (max 0 (- (:flash state) (* dt 2))))]
+            heat (clamp (+ (:heat state) (* dt (if (or (held? :tap) (pointer-held?)) (if (> (:surge state) 0) 5 9) -4))) 0 110)
+            rot (mod (+ (:rot state) (* dir dt (+ 96 (* (:score state) 0.5) (if (> (:surge state) 0) 48 0)))) 360)
+            pr (- (:pr state) (* dt (+ 62 (* (:score state) 0.2) (* (:streak state) 2))))
+            moved (assoc state
+                    :t (+ (:t state) dt)
+                    :dir dir
+                    :heat heat
+                    :rot rot
+                    :pr pr
+                    :surge (max 0 (- (:surge state) dt))
+                    :flash (max 0 (- (:flash state) (* dt 2))))]
         (cond
           (>= heat 100) (do (sound/play :pop :volume 0.84) (assoc moved :phase :over :message "Forge overheated"))
           (<= pr (shield-radius)) (catch-particle moved)
@@ -110,6 +122,10 @@
   (sprite :image :space :src (case (mod i 4) 0 :planet 1 :ring 2 :station else :moon)
           :x (+ 316 (* (mod i 2) 42)) :y (+ 84 (* (floor (/ i 2)) 42)) :scale 0.62))
 
+(defn streak-pip [i state]
+  (circle :x (+ 142 (* i 14)) :y 60 :r 4
+          :color (if (< i (:streak state)) (color-hex i) "#334155")))
+
 (defn over-panel [state]
   (if (= (:phase state) :over)
     (group
@@ -129,6 +145,10 @@
     (text :font :main :value "Starforge Spin" :x 112 :y 17 :size 23 :color "#f8fafc")
     (text :font :main :value (str "Score " (:score state) "  Heat " (floor (:heat state))) :x 326 :y 21 :size 12 :color "#fde68a")
     (text :font :main :value (:message state) :x 114 :y 44 :size 11 :color "#ddd6fe")
+    (for [i (range 9)] (streak-pip i state))
+    (if (> (:surge state) 0)
+      (circle :x 240 :y 198 :r (+ 114 (* 9 (sin (* (:t state) 12)))) :color "#713f12")
+      empty)
     (circle :x 240 :y 198 :r (+ 42 (* (:flash state) 8)) :color "#312e81")
     (for [i (range 4)] (arm state i))
     (circle :x 240 :y 198 :r 22 :color (color-hex (shield-color state)))

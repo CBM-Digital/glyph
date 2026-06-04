@@ -10,7 +10,8 @@
   :view view)
 
 (def initial {:t 0 :phase :play :angle 0 :target 42 :score 0 :streak 0 :misses 0
-              :flash 0 :ring 0 :shake 0 :message "Tap when the cyan needle cuts the gold gate."})
+              :focus 0 :fever 0 :flash 0 :ring 0 :shake 0
+              :message "Tap when the cyan needle cuts the gold gate."})
 
 (defn back? []
   (and (pointer-released?)
@@ -23,7 +24,10 @@
   (min (abs (- angle target)) (abs (- angle (+ target 360))) (abs (- (+ angle 360) target))))
 
 (defn hit-window [state]
-  (max 7 (- 15 (floor (/ (:score state) 5)))))
+  (+ (if (> (:fever state) 0) 5 0) (max 7 (- 15 (floor (/ (:score state) 5))))))
+
+(defn perfect-window [state]
+  (max 3 (- 6 (floor (/ (:score state) 9)))))
 
 (defn next-target [state hit]
   (mod (+ (:target state) (if hit 71 47) (* 13 (mod (:score state) 5))) 360))
@@ -32,30 +36,35 @@
   (cond
     (pressed? :tap)
       (let [diff (shot-diff (:angle state) (:target state))
+            perfect (< diff (perfect-window state))
             hit (< diff (hit-window state))]
         (if hit
           (do
-            (sound/play :blip :volume 0.84 :pitch (+ 1 (* (:streak state) 0.035)))
+            (sound/play :blip :volume 0.84 :pitch (+ 1 (* (:streak state) 0.035) (if perfect 0.22 0)))
             (assoc state
-              :score (+ (:score state) 1 (:streak state))
+              :score (+ (:score state) 1 (:streak state) (if perfect 4 0) (if (> (:fever state) 0) 2 0))
               :streak (min 9 (+ (:streak state) 1))
+              :focus (min 100 (+ (:focus state) (if perfect 24 10)))
+              :fever (if (>= (+ (:focus state) (if perfect 24 10)) 100) 4.2 (:fever state))
               :target (next-target state true)
               :flash 1
               :ring 1
               :shake 0.08
-              :message "Clean shot"))
+              :message (if perfect "Bullseye surge" "Clean shot")))
           (let [misses (+ (:misses state) 1)]
             (do
               (sound/play :pop :volume 0.72)
               (if (>= misses 3)
                 (assoc state :phase :over :misses misses :streak 0 :flash 0.85 :shake 0.32
                             :message "The rhythm broke")
-                (assoc state :misses misses :streak 0 :target (next-target state false)
+                (assoc state :misses misses :streak 0 :focus (max 0 (- (:focus state) 28)) :target (next-target state false)
                             :flash 0.48 :ring 0.45 :shake 0.2 :message "Late cut"))))))
     else
       (assoc state
         :t (+ (:t state) dt)
-        :angle (mod (+ (:angle state) (* dt (+ 112 (* (:score state) 4) (* 34 (axis :move-x))))) 360)
+        :angle (mod (+ (:angle state) (* dt (+ 112 (* (:score state) 4) (* 34 (axis :move-x))) (if (> (:fever state) 0) 0.72 1))) 360)
+        :fever (max 0 (- (:fever state) dt))
+        :focus (if (> (:fever state) 0) (max 0 (- (:focus state) (* dt 24))) (:focus state))
         :flash (max 0 (- (:flash state) (* dt 2.5)))
         :ring (max 0 (- (:ring state) (* dt 1.8)))
         :shake (max 0 (- (:shake state) (* dt 2.4))))))
@@ -90,6 +99,11 @@
   (circle :x (+ 374 (* i 22)) :y 48 :r 7
           :color (if (< i (:misses state)) "#fb7185" "#334155")))
 
+(defn focus-bar [state]
+  (group
+    (rect :x 214 :y 60 :w 132 :h 5 :color "#283044")
+    (rect :x 214 :y 60 :w (* 1.32 (:focus state)) :h 5 :color (if (> (:fever state) 0) "#fde68a" "#67e8f9"))))
+
 (defn tick-line [i cx cy]
   (line :from [cx cy] :angle (* i 30) :length 92 :width (if (= (mod i 3) 0) 2 1)
         :color (if (= (mod i 3) 0) "#475569" "#283044")))
@@ -119,12 +133,18 @@
       (text :font :main :value "Perfect Shot" :x 106 :y 14 :size 24 :color "#f8fafc")
       (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 106 :y 43 :size 13 :color "#a7f3d0")
       (text :font :main :value (:message state) :x 214 :y 44 :size 10 :color "#c7d2fe")
+      (focus-bar state)
       (for [i (range 3)] (miss-mark i state))
       (camera :x (- 0 jitter) :y 0 :zoom 1
         (circle :x cx :y cy :r 116 :color "#15172a")
         (circle :x cx :y cy :r 98 :color "#25263b")
+        (if (> (:fever state) 0)
+          (circle :x cx :y cy :r (+ 126 (* 8 (sin (* (:t state) 10)))) :color "#713f12")
+          empty)
         (for [i (range 12)] (tick-line i cx cy))
         (circle :x cx :y cy :r (+ 72 (* (:ring state) 34)) :color "#134e4a")
+        (line :from [cx cy] :angle (- target (perfect-window state)) :length 96 :width 4 :color "#fef3c7")
+        (line :from [cx cy] :angle (+ target (perfect-window state)) :length 96 :width 4 :color "#fef3c7")
         (line :from [cx cy] :angle (- target (hit-window state)) :length 104 :width 3 :color "#f59e0b")
         (line :from [cx cy] :angle (+ target (hit-window state)) :length 104 :width 3 :color "#f59e0b")
         (line :from [cx cy] :angle target :length 112 :width 2 :color "#fde68a")

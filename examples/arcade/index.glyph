@@ -23,7 +23,7 @@
   :update update
   :view view)
 
-(def initial {:t 0 :music false :page 0})
+(def initial {:t 0 :music false :page 0 :spark 0})
 
 (defn hit? [x y w h]
   (and (pointer-released?)
@@ -49,7 +49,7 @@
 
 (defn update [dt state]
   (let [base (arm-music state)
-        next (assoc base :t (+ (:t base) dt))]
+        next (assoc base :t (+ (:t base) dt) :spark (mod (+ (:spark base) (* dt 34)) 480))]
     (cond
       (and (= (:page next) 0) (hit? 398 42 60 22)) (flip-page next 1)
       (and (= (:page next) 1) (hit? 398 42 60 22)) (flip-page next 0)
@@ -110,17 +110,46 @@
     6 "#fca5a5"
     else "#d8b4fe"))
 
+(defn stat-a [i]
+  (case (mod i 8)
+    0 "FLOW"
+    1 "BLAST"
+    2 "TACTIC"
+    3 "BUILD"
+    4 "RUSH"
+    5 "ZEN"
+    6 "CHAOS"
+    else "DUEL"))
+
+(defn stat-b [i]
+  (case (mod i 8)
+    0 "4/5"
+    1 "5/5"
+    2 "4/5"
+    3 "5/5"
+    4 "4/5"
+    5 "3/5"
+    6 "5/5"
+    else "4/5"))
+
 (defn card [x y label tag image i]
-  (let [bob (* 2 (sin (+ (* i 0.7) (* (mod i 3) 0.4))))]
+  (let [bob (* 2 (sin (+ (* i 0.7) (* (mod i 3) 0.4))))
+        glow (+ 0.35 (* 0.35 (sin (+ (* i 0.6) (/ y 32)))))]
     (group
-      (rect :x x :y y :w 212 :h 50 :color "#101827")
+      (rect :x (- x 2) :y (- y 2) :w 216 :h 54 :color "#050814")
+      (rect :x x :y y :w 212 :h 50 :color (accent-color i))
       (rect :x (+ x 3) :y (+ y 3) :w 206 :h 44 :color (card-color i))
       (rect :x (+ x 3) :y (+ y 3) :w 5 :h 44 :color (accent-color i))
-      (circle :x (+ x 38) :y (+ y 27) :r 22 :color "#0f172a")
+      (rect :x (+ x 148) :y (+ y 8) :w 50 :h 12 :color "#0f172a")
+      (rect :x (+ x 148) :y (+ y 8) :w (* 50 glow) :h 12 :color (accent-color i))
+      (circle :x (+ x 38) :y (+ y 27) :r 24 :color "#050814")
+      (circle :x (+ x 38) :y (+ y 27) :r 21 :color "#0f172a")
       (transform :x (+ x 14) :y (+ y 5 bob) :rotation (* 3 (sin (+ i y)))
         (sprite :image image :frame (icon-frame image) :x 0 :y 0 :scale 0.76))
       (text :font :main :value label :x (+ x 58) :y (+ y 8) :size 15 :color "#f8fafc")
-      (text :font :main :value tag :x (+ x 58) :y (+ y 30) :size 9 :color "#e2e8f0"))))
+      (text :font :main :value tag :x (+ x 58) :y (+ y 30) :size 9 :color "#e2e8f0")
+      (text :font :main :value (stat-a i) :x (+ x 152) :y (+ y 22) :size 8 :color "#f8fafc")
+      (text :font :main :value (stat-b i) :x (+ x 178) :y (+ y 35) :size 8 :color "#fde68a"))))
 
 (defn page-button [state]
   (group
@@ -133,6 +162,17 @@
           :y (+ 76 (mod (* i 41) 278))
           :r (if (= (mod i 5) 0) 2 1)
           :color (if (= (mod i 3) 0) "#67e8f9" "#475569")))
+
+(defn marquee-light [i state]
+  (circle :x (+ 16 (* i 18)) :y 72 :r (if (= (mod (+ i (floor (:spark state))) 7) 0) 3 2)
+          :color (if (= (mod (+ i (floor (:spark state))) 7) 0) "#fde68a" "#334155")))
+
+(defn cabinet-rail [state]
+  (group
+    (rect :x 0 :y 72 :w 480 :h 10 :color "#050814")
+    (for [i (range 26)] (marquee-light i state))
+    (rect :x 14 :y 86 :w 452 :h 254 :color "#0b1020")
+    (rect :x 18 :y 90 :w 444 :h 246 :color "#111827")))
 
 (defn page-zero []
   (group
@@ -149,23 +189,24 @@
   (group
     (card 22 96 "Rune Relay" "rotate colors, chain runes" :puzzle 0)
     (card 246 96 "Pirate Plunder" "dash, shove, dock crates" :pirate 1)
-    (card 22 158 "Market Mayhem" "draw routes, dodge traffic" :town 2)
-    (card 246 158 "Chip Flip Blitz" "flip crosses, score lines" :board 3)
+    (card 22 158 "Courier Dash" "pickup, weave, combo drops" :town 2)
+    (card 246 158 "Volt Grid" "cross taps, chain charges" :board 3)
     (card 22 220 "Comet Courier" "sling cargo through gravity" :space 4)
-    (card 246 220 "Potion Panic" "recipe taps, splash risk" :items 5)
-    (card 22 282 "Harbor Switch" "toggle lanes, dock boats" :pirate 6)
+    (card 246 220 "Potion Panic" "memory orbs, fever brews" :items 5)
+    (card 22 282 "Harbor Lock" "switch lanes, stack boats" :pirate 6)
     (card 246 282 "Starforge Spin" "reverse, expand, cool core" :particle 7)))
 
 (defn view [state]
   (group
     (clear "#0d1320")
     (for [i (range 38)] (star i state))
-    (rect :x 0 :y 0 :w 480 :h 72 :color "#141f33")
-    (rect :x 0 :y 70 :w 480 :h 3 :color "#67e8f9")
+    (rect :x 0 :y 0 :w 480 :h 72 :color "#101827")
+    (rect :x 0 :y 0 :w 480 :h 8 :color "#67e8f9")
     (transform :x 26 :y 13 :rotation (* 5 (sin (* (:t state) 2)))
       (sprite :image :logo :x 0 :y 0 :scale 0.46))
     (text :font :main :value "Glyph Arcade" :x 88 :y 14 :size 28 :color "#f8fafc")
-    (text :font :main :value (if (= (:page state) 0) "Page 1: polished action cabinet" "Page 2: mechanic lab cabinet") :x 90 :y 47 :size 13 :color "#93c5fd")
-    (text :font :main :value (if (= (:page state) 0) "8 games" "8 games") :x 350 :y 16 :size 11 :color "#cbd5e1")
+    (text :font :main :value (if (= (:page state) 0) "Page 1: action, sport, survival" "Page 2: puzzle, physics, pressure") :x 90 :y 47 :size 13 :color "#93c5fd")
+    (text :font :main :value "16 cabinets" :x 332 :y 16 :size 11 :color "#cbd5e1")
     (page-button state)
+    (cabinet-rail state)
     (if (= (:page state) 0) (page-zero) (page-one))))

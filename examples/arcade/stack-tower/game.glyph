@@ -9,7 +9,7 @@
   :update update
   :view view)
 
-(def initial {:t 0 :phase :play :x 40 :dir 1 :score 0 :combo 0 :misses 0
+(def initial {:t 0 :phase :play :x 40 :dir 1 :score 0 :combo 0 :misses 0 :bonus 0
               :settled [] :flash 0 :shake 0 :message "Center blocks to climb the neon tower."})
 
 (defn back? []
@@ -54,13 +54,21 @@
     (if ok
       (do
         (sound/play :blip :volume 0.78 :pitch (if perfect 1.32 0.95))
-        (assoc state
-          :score (+ (:score state) 1)
-          :combo (if perfect (min 9 (+ (:combo state) 1)) 0)
-          :settled (conj (:settled state) {:x settled-x :score (:score state)})
-          :flash (if perfect 1 0.45)
-          :shake (if perfect 0.06 0.12)
-          :message (if perfect "Perfect lock" "Good enough")))
+        (let [combo (if perfect (min 12 (+ (:combo state) 1)) 0)
+              bonus (if perfect (+ (:bonus state) combo) (:bonus state))
+              heal (and perfect (= (mod combo 5) 0))]
+          (assoc state
+            :score (+ (:score state) 1)
+            :combo combo
+            :bonus bonus
+            :misses (if heal (max 0 (- (:misses state) 1)) (:misses state))
+            :settled (conj (:settled state) {:x settled-x :score (:score state) :perfect perfect})
+            :flash (if perfect 1 0.45)
+            :shake (if perfect 0.06 0.12)
+            :message (cond
+                       heal "Perfect chain repaired a strike"
+                       perfect "Perfect lock"
+                       else "Good enough"))))
       (let [misses (+ (:misses state) 1)]
         (do
           (sound/play :pop :volume 0.78)
@@ -100,6 +108,16 @@
   (rect :x (+ 24 (* i 52)) :y (+ 96 (* (mod i 3) 38)) :w 24 :h 34
         :color (if (> (:flash state) 0) "#fef3c7" "#28405a")))
 
+(defn combo-light [i state]
+  (rect :x (+ 214 (* i 11)) :y 60 :w 8 :h 5
+        :color (if (< i (:combo state)) "#fde68a" "#334155")))
+
+(defn block-glow [state item]
+  (if (:perfect item)
+    (circle :x (+ (:x item) 36) :y (+ (screen-y (:score state) (:score item)) 18)
+            :r 26 :color "#14532d")
+    empty))
+
 (defn miss-mark [i state]
   (circle :x (+ 374 (* i 22)) :y 48 :r 7
           :color (if (< i (:misses state)) "#fb7185" "#334155")))
@@ -123,13 +141,16 @@
       (rect :x 0 :y 0 :w 480 :h 74 :color "#172236")
       (back-button)
       (text :font :main :value "Stack Tower" :x 106 :y 14 :size 24 :color "#f8fafc")
-      (text :font :main :value (str "Height " (:score state) "  x" (:combo state)) :x 106 :y 43 :size 13 :color "#a7f3d0")
+      (text :font :main :value (str "Height " (:score state) "  x" (:combo state) "  +" (:bonus state)) :x 106 :y 43 :size 13 :color "#a7f3d0")
       (text :font :main :value (:message state) :x 222 :y 44 :size 10 :color "#c7d2fe")
+      (for [i (range 12)] (combo-light i state))
       (for [i (range 3)] (miss-mark i state))
       (camera :x (- 0 jitter) :y 0 :zoom 1
         (rect :x 54 :y 326 :w 372 :h 10 :color "#2d4154")
         (rect :x 64 :y 336 :w 352 :h 8 :color "#0f172a")
         (line :from [(top-x state) 88] :angle 90 :length 220 :width 2 :color "#475569")
+        (for [i (range (count (:settled state)))]
+          (block-glow state (nth (:settled state) i)))
         (for [i (range (count (:settled state)))]
           (block-node state i (nth (:settled state) i)))
         (transform :x (:x state) :y active-y :rotation (* 4 (sin (* (:t state) 8)))

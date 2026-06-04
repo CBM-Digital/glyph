@@ -1,5 +1,5 @@
 (game harbor-switchyard
-  :title "Harbor Switchyard"
+  :title "Harbor Lock"
   :size [480 360]
   :assets {:pirate "../assets/kenney/strips/pirate-kit.png"
            :town "../assets/kenney/strips/tiny-town-kit.png"
@@ -11,9 +11,12 @@
   :update update
   :view view)
 
-(def initial {:t 0 :phase :play :score 0 :near 0 :switch 1 :cargo 0
-              :x 34 :x2 -146 :route2 0 :strikes 0 :flash 0
-              :message "Tap switches to route boats to matching docks"})
+(def initial {:t 0 :phase :play :score 0 :near 0 :switch 1 :strikes 0 :combo 0
+              :x0 26 :x1 -142 :x2 -302
+              :lane0 1 :lane1 0 :lane2 2
+              :cargo0 1 :cargo1 0 :cargo2 2
+              :lock0 false :lock1 false :lock2 false
+              :flash 0 :shake 0 :message "Tap lane locks before boats cross."})
 
 (defn frame [n]
   (case (mod n 8)
@@ -38,6 +41,12 @@
     1 "#38bdf8"
     else "#fb7185"))
 
+(defn cargo-name [r]
+  (case (mod r 3)
+    0 "Gold"
+    1 "Fish"
+    else "Spice"))
+
 (defn back? []
   (and (pointer-released?)
        (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
@@ -45,51 +54,126 @@
 (defn restart? []
   (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
 
-(defn switch-hit? []
-  (and (pointer-released?)
-       (point-in-circle? (pointer-x) (pointer-y) (circle-box 244 190 42))))
+(defn lane-hit []
+  (cond
+    (and (pointer-released?) (point-in-rect? (pointer-x) (pointer-y) (rect-box 196 92 96 52))) 0
+    (and (pointer-released?) (point-in-rect? (pointer-x) (pointer-y) (rect-box 196 164 96 52))) 1
+    (and (pointer-released?) (point-in-rect? (pointer-x) (pointer-y) (rect-box 196 236 96 52))) 2
+    else -1))
 
-(defn boat-box [x y] (rect-box (- x 23) (- y 15) 46 30))
-
-(defn next-boat [state message]
-  (assoc state :x 34 :cargo (rand-int 3) :message message :flash 1))
-
-(defn dock-check [state]
-  (if (> (:x state) 430)
-    (if (= (:switch state) (:cargo state))
+(defn set-switch [state]
+  (let [hit (lane-hit)]
+    (if (>= hit 0)
       (do
-        (sound/play :blip :volume 0.84 :pitch 1.18)
-        (next-boat (assoc state :score (+ (:score state) 20 (:near state)) :near 0) "Boat docked"))
-      (let [strikes (+ (:strikes state) 1)]
+        (sound/play :blip :volume 0.5 :pitch (+ 0.9 (* hit 0.08)))
+        (assoc state :switch hit :near (+ (:near state) 2) :message (str "Switch set to " (cargo-name hit))))
+      state)))
+
+(defn boat-x [state i]
+  (case i
+    0 (:x0 state)
+    1 (:x1 state)
+    else (:x2 state)))
+
+(defn boat-lane [state i]
+  (case i
+    0 (:lane0 state)
+    1 (:lane1 state)
+    else (:lane2 state)))
+
+(defn boat-cargo [state i]
+  (case i
+    0 (:cargo0 state)
+    1 (:cargo1 state)
+    else (:cargo2 state)))
+
+(defn boat-locked? [state i]
+  (case i
+    0 (:lock0 state)
+    1 (:lock1 state)
+    else (:lock2 state)))
+
+(defn set-boat [state i x lane cargo locked]
+  (case i
+    0 (assoc state :x0 x :lane0 lane :cargo0 cargo :lock0 locked)
+    1 (assoc state :x1 x :lane1 lane :cargo1 cargo :lock1 locked)
+    else (assoc state :x2 x :lane2 lane :cargo2 cargo :lock2 locked)))
+
+(defn reset-boat [state i gap message]
+  (set-boat (assoc state :message message :flash 1)
+            i (- 120 gap) (rand-int 3) (rand-int 3) false))
+
+(defn strike [state message]
+  (let [strikes (+ (:strikes state) 1)]
+    (do
+      (sound/play :pop :volume 0.72)
+      (if (>= strikes 3)
+        (assoc state :phase :over :strikes strikes :message "Harbor jammed" :flash 1 :shake 0.34)
+        (assoc state :strikes strikes :combo 0 :message message :flash 1 :shake 0.18)))))
+
+(defn maybe-lock [state i x]
+  (if (and (not (boat-locked? state i)) (> x 226))
+    (do
+      (sound/play :blip :volume 0.42)
+      (set-boat state i x (:switch state) (boat-cargo state i) true))
+    (set-boat state i x (boat-lane state i) (boat-cargo state i) (boat-locked? state i))))
+
+(defn dock-one [state i]
+  (let [x (boat-x state i)
+        cargo (boat-cargo state i)
+        lane (boat-lane state i)]
+    (if (> x 438)
+      (if (= cargo lane)
         (do
-          (sound/play :pop :volume 0.7)
-          (if (>= strikes 3)
-            (assoc state :phase :over :strikes strikes :message "Harbor jammed")
-            (next-boat (assoc state :strikes strikes :near 0) "Wrong dock")))))
-    state))
+          (sound/play :blip :volume 0.82 :pitch (+ 1.06 (* (:combo state) 0.05)))
+          (reset-boat
+            (assoc state :score (+ (:score state) 24 (* (:combo state) 6) (:near state))
+                         :combo (+ (:combo state) 1) :near 0)
+            i (+ 150 (rand-int 120)) "Boat docked"))
+        (reset-boat (strike state "Wrong dock") i (+ 140 (rand-int 120)) "Wrong dock"))
+      state)))
+
+(defn advance-one [dt state i]
+  (let [x (+ (boat-x state i) (* dt (+ 78 (* (:score state) 0.18) (* i 9))))
+        locked (maybe-lock state i x)]
+    (dock-one locked i)))
+
+(defn close-boats? [state a b]
+  (and (> (boat-x state a) 20)
+       (> (boat-x state b) 20)
+       (= (boat-lane state a) (boat-lane state b))
+       (< (abs (- (boat-x state a) (boat-x state b))) 50)))
+
+(defn near-pass? [state a b]
+  (and (> (boat-x state a) 180)
+       (> (boat-x state b) 180)
+       (not= (boat-lane state a) (boat-lane state b))
+       (< (abs (- (boat-x state a) (boat-x state b))) 28)))
 
 (defn collision? [state]
-  (and (> (:x2 state) 20)
-       (< (abs (- (:x state) (:x2 state))) 42)
-       (= (:switch state) (:route2 state))))
+  (or (close-boats? state 0 1)
+      (close-boats? state 0 2)
+      (close-boats? state 1 2)))
+
+(defn near-pass-score [state]
+  (if (or (near-pass? state 0 1) (near-pass? state 0 2) (near-pass? state 1 2))
+    (assoc state :near (+ (:near state) 1) :score (+ (:score state) 1))
+    state))
 
 (defn update [dt state]
   (cond
     (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
     (and (= (:phase state) :over) (restart?)) initial
-    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt) :shake (max 0 (- (:shake state) (* dt 2))))
     else
-      (let [switched (if (switch-hit?)
-                       (do (sound/play :blip :volume 0.55) (assoc state :switch (mod (+ (:switch state) 1) 3) :near (+ (:near state) 3)))
-                       state)
-            x (+ (:x switched) (* dt (+ 86 (* (:score switched) 0.4))))
-            x2 (+ (:x2 switched) (* dt 72))
-            reset2 (if (> x2 520) -120 x2)
-            route2 (if (> x2 520) (rand-int 3) (:route2 switched))
-            moved (assoc switched :t (+ (:t switched) dt) :x x :x2 reset2 :route2 route2 :flash (max 0 (- (:flash switched) (* dt 2))))]
+      (let [switched (set-switch state)
+            base (assoc switched :t (+ (:t switched) dt)
+                                  :flash (max 0 (- (:flash switched) (* dt 2.3)))
+                                  :shake (max 0 (- (:shake switched) (* dt 2.4))))
+            moved (near-pass-score (advance-one dt (advance-one dt (advance-one dt base 0) 1) 2))]
         (if (collision? moved)
-          (do (sound/play :pop :volume 0.82) (assoc moved :phase :over :message "Boats collided" :flash 1))
-          (dock-check moved)))))
+          (strike moved "Boats collided")
+          moved))))
 
 (defn back-button []
   (group
@@ -99,12 +183,35 @@
 (defn dock [r]
   (group
     (rect :x 422 :y (- (route-y r) 24) :w 46 :h 48 :color "#0f172a")
-    (rect :x 428 :y (- (route-y r) 18) :w 34 :h 36 :color (route-color r))))
+    (rect :x 428 :y (- (route-y r) 18) :w 34 :h 36 :color (route-color r))
+    (text :font :main :value (cargo-name r) :x 424 :y (+ (route-y r) 30) :size 9 :color "#ecfeff")))
 
-(defn boat [x y cargo flip]
+(defn lock-button [state r]
   (group
-    (rect :x (- x 23) :y (- y 11) :w 46 :h 22 :color (route-color cargo))
-    (sprite :image :pirate :frame (frame 4) :x (- x 24) :y (- y 24) :scale 0.85 :flip-x flip)))
+    (rect :x 198 :y (- (route-y r) 24) :w 92 :h 48 :color "#0f172a")
+    (rect :x 204 :y (- (route-y r) 18) :w 80 :h 36 :color (if (= (:switch state) r) (route-color r) "#155e75"))
+    (text :font :main :value "LOCK" :x 226 :y (- (route-y r) 7) :size 12 :color "#ecfeff")))
+
+(defn boat [state i]
+  (let [x (boat-x state i)
+        lane (boat-lane state i)
+        cargo (boat-cargo state i)
+        y (route-y lane)]
+    (group
+      (rect :x (- x 24) :y (- y 11) :w 48 :h 22 :color (route-color cargo))
+      (sprite :image :pirate :frame (frame (+ i 4)) :x (- x 24) :y (- y 24) :scale 0.85)
+      (if (boat-locked? state i)
+        (circle :x x :y (- y 22) :r 7 :color "#fef3c7")
+        empty))))
+
+(defn strike-mark [i state]
+  (circle :x (+ 374 (* i 22)) :y 48 :r 7
+          :color (if (< i (:strikes state)) "#fb7185" "#334155")))
+
+(defn water-spark [i state]
+  (circle :x (+ 12 (mod (+ (* i 53) (floor (* (:t state) -18))) 456))
+          :y (+ 82 (mod (* i 41) 250))
+          :r 1 :color "#67e8f9"))
 
 (defn over-panel [state]
   (if (= (:phase state) :over)
@@ -116,18 +223,25 @@
     empty))
 
 (defn view [state]
-  (group
-    (clear "#083344")
-    (rect :x 0 :y 0 :w 480 :h 62 :color "#17343e")
-    (back-button)
-    (text :font :main :value "Harbor Switchyard" :x 102 :y 17 :size 22 :color "#ecfeff")
-    (text :font :main :value (str "Score " (:score state) "  Strikes " (:strikes state) "/3") :x 318 :y 21 :size 12 :color "#fde68a")
-    (text :font :main :value (:message state) :x 108 :y 44 :size 11 :color "#a5f3fc")
-    (for [r (range 3)] (line :from [34 (route-y r)] :angle 0 :length 390 :width 6 :color "#155e75"))
-    (for [r (range 3)] (dock r))
-    (circle :x 244 :y 190 :r 38 :color "#0f172a")
-    (circle :x 244 :y 190 :r 24 :color (route-color (:switch state)))
-    (text :font :main :value "SW" :x 234 :y 182 :size 12 :color "#ecfeff")
-    (boat (:x state) (route-y (:switch state)) (:cargo state) false)
-    (boat (:x2 state) (route-y (:route2 state)) (:route2 state) true)
-    (over-panel state)))
+  (let [jitter (* (:shake state) 10 (sin (* (:t state) 48)))]
+    (group
+      (clear "#083344")
+      (for [i (range 36)] (water-spark i state))
+      (rect :x 0 :y 0 :w 480 :h 62 :color "#17343e")
+      (back-button)
+      (text :font :main :value "Harbor Lock" :x 112 :y 17 :size 23 :color "#ecfeff")
+      (text :font :main :value (str "Score " (:score state) "  x" (:combo state)) :x 326 :y 21 :size 12 :color "#fde68a")
+      (text :font :main :value (:message state) :x 108 :y 44 :size 11 :color "#a5f3fc")
+      (for [i (range 3)] (strike-mark i state))
+      (camera :x (- 0 jitter) :y 0 :zoom 1
+        (for [r (range 3)] (line :from [34 (route-y r)] :angle 0 :length 390 :width 6 :color "#155e75"))
+        (for [r (range 3)] (dock r))
+        (for [r (range 3)] (lock-button state r))
+        (line :from [244 82] :angle 90 :length 220 :width 3 :color "#fef3c7")
+        (if (> (:flash state) 0)
+          (circle :x 244 :y (route-y (:switch state)) :r (+ 30 (* (:flash state) 16)) :color "#fef3c7")
+          empty)
+        (boat state 0)
+        (boat state 1)
+        (boat state 2))
+      (over-panel state))))

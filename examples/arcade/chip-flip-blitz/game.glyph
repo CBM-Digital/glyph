@@ -1,5 +1,5 @@
 (game chip-flip-blitz
-  :title "Chip Flip Blitz"
+  :title "Volt Grid"
   :size [480 360]
   :assets {:chips "../assets/kenney/strips/boardgame-kit.png"
            :sheet {:path "../assets/kenney/sheets/boardgame-chips.png"
@@ -15,8 +15,9 @@
   :update update
   :view view)
 
-(def initial {:t 0 :phase :play :score 0 :turn 0 :focus 12 :time 45 :flash 0
-              :message "Tap chips to flip a cross pattern"})
+(def initial {:t 0 :phase :play :score 0 :turn 0 :focus 12 :time 50
+              :chain 0 :surge 0 :zap 0 :last 12 :flash 0
+              :message "Tap crosses. Chain charged volts."})
 
 (defn frame [n]
   (case (mod n 8)
@@ -39,62 +40,83 @@
 (defn cell-x [i] (+ 132 (* (mod i 5) 48)))
 (defn cell-y [i] (+ 86 (* (floor (/ i 5)) 48)))
 
-(defn near-focus? [state i]
-  (let [f (:focus state)]
-    (or (= i f)
-        (= i (- f 1))
-        (= i (+ f 1))
-        (= i (- f 5))
-        (= i (+ f 5)))))
+(defn same-row? [a b]
+  (= (floor (/ a 5)) (floor (/ b 5))))
 
-(defn gold? [i]
-  (or (= i 2) (= i 10) (= i 18) (= i 24)))
+(defn in-cross? [focus i]
+  (or (= focus i)
+      (= i (- focus 5))
+      (= i (+ focus 5))
+      (and (same-row? focus i) (= i (- focus 1)))
+      (and (same-row? focus i) (= i (+ focus 1)))))
 
-(defn chip-color-id [state i]
-  (if (gold? i)
-    3
-    (mod (+ i (:turn state) (if (near-focus? state i) 1 0)) 3)))
+(defn edge-bonus [i]
+  (if (or (= (mod i 5) 0) (= (mod i 5) 4) (< i 5) (> i 19)) 1 0))
 
-(defn chip-color [state i]
-  (case (chip-color-id state i)
-    0 "#ef4444"
-    1 "#3b82f6"
-    2 "#e5e7eb"
-    else "#facc15"))
+(defn volt-id [state i]
+  (mod (+ i (:turn state) (if (in-cross? (:focus state) i) 2 0) (edge-bonus i)) 4))
+
+(defn charged? [state i]
+  (= (volt-id state i) 3))
+
+(defn volt-color [state i]
+  (case (volt-id state i)
+    0 "#38bdf8"
+    1 "#a78bfa"
+    2 "#f8fafc"
+    else "#fde047"))
 
 (defn cell-hit [i]
   (and (pointer-released?)
-       (point-in-rect? (pointer-x) (pointer-y) (rect-box (- (cell-x i) 20) (- (cell-y i) 20) 40 40))))
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box (- (cell-x i) 21) (- (cell-y i) 21) 42 42))))
 
 (defn clicked-cell []
   (let [hits (filter (range 25) (fn [i] (cell-hit i)))]
     (if (empty? hits) -1 (first hits))))
 
-(defn row-score [state row color]
-  (let [base (* row 5)]
-    (if (and (= (chip-color-id state base) color)
-             (= (chip-color-id state (+ base 1)) color)
-             (= (chip-color-id state (+ base 2)) color)
-             (= (chip-color-id state (+ base 3)) color)
-             (= (chip-color-id state (+ base 4)) color))
-      20
-      0)))
+(defn cross-charge-count [state cell]
+  (+ (if (charged? state cell) 1 0)
+     (if (and (>= (- cell 5) 0) (charged? state (- cell 5))) 1 0)
+     (if (and (< (+ cell 5) 25) (charged? state (+ cell 5))) 1 0)
+     (if (and (same-row? cell (- cell 1)) (charged? state (- cell 1))) 1 0)
+     (if (and (same-row? cell (+ cell 1)) (charged? state (+ cell 1))) 1 0)))
 
-(defn board-bonus [state]
-  (+ (row-score state 0 0)
-     (row-score state 1 1)
-     (row-score state 2 0)
-     (row-score state 3 1)
-     (row-score state 4 0)
-     (if (near-focus? state 2) 8 0)
-     (if (near-focus? state 10) 8 0)
-     (if (near-focus? state 18) 8 0)
-     (if (near-focus? state 24) 8 0)))
+(defn row-same? [state row]
+  (let [base (* row 5)
+        c (volt-id state base)]
+    (and (= c (volt-id state (+ base 1)))
+         (= c (volt-id state (+ base 2)))
+         (= c (volt-id state (+ base 3)))
+         (= c (volt-id state (+ base 4))))))
 
-(defn settle-focus [state]
-  (if (= (mod (floor (* (:t state) 2)) 9) 0)
-    (assoc state :focus (mod (+ (:focus state) 6) 25))
-    state))
+(defn col-same? [state col]
+  (let [c (volt-id state col)]
+    (and (= c (volt-id state (+ col 5)))
+         (= c (volt-id state (+ col 10)))
+         (= c (volt-id state (+ col 15)))
+         (= c (volt-id state (+ col 20))))))
+
+(defn line-bonus [state cell]
+  (+ (if (row-same? state (floor (/ cell 5))) 40 0)
+     (if (col-same? state (mod cell 5)) 40 0)))
+
+(defn tap-cell [state cell]
+  (let [charged (cross-charge-count state cell)
+        turn (+ (:turn state) 1 charged)
+        preview (assoc state :turn turn :focus cell)
+        chain (if (> charged 0) (+ (:chain state) charged) 0)
+        surge (if (>= chain 8) 5 (:surge state))
+        points (+ 4 (* charged 14) (line-bonus preview cell) (if (> (:surge state) 0) 10 0))]
+    (do
+      (sound/play :blip :volume 0.72 :pitch (+ 0.92 (* charged 0.12)))
+      (assoc preview
+        :score (+ (:score state) points)
+        :chain chain
+        :surge surge
+        :zap (if (> charged 0) 0.8 0.35)
+        :last cell
+        :flash 1
+        :message (if (> charged 0) (str "Chain clear +" points) (str "Cross pulse +" points))))))
 
 (defn update [dt state]
   (cond
@@ -102,52 +124,76 @@
     (and (= (:phase state) :over) (restart?)) initial
     (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
     else
-      (let [timed (settle-focus (assoc state :t (+ (:t state) dt) :time (- (:time state) dt) :flash (max 0 (- (:flash state) (* dt 2)))))
+      (let [timed (assoc state :t (+ (:t state) dt)
+                               :time (- (:time state) dt)
+                               :surge (max 0 (- (:surge state) dt))
+                               :zap (max 0 (- (:zap state) (* dt 2.8)))
+                               :flash (max 0 (- (:flash state) (* dt 2.4))))
             cell (clicked-cell)]
         (cond
-          (<= (:time timed) 0) (assoc timed :phase :over :message "Board settled")
-          (>= cell 0)
-            (do
-              (sound/play :blip :volume 0.65)
-              (let [flipped (assoc timed :focus cell :turn (+ (:turn timed) 1) :flash 1)]
-                (assoc flipped :score (+ (:score flipped) 3 (board-bonus flipped))
-                               :message (str "Cross flipped +" (+ 3 (board-bonus flipped))))))
+          (<= (:time timed) 0) (assoc timed :phase :over :message "Grid discharged")
+          (>= cell 0) (tap-cell timed cell)
           else timed))))
 
 (defn back-button []
   (group
-    (rect :x 12 :y 12 :w 72 :h 30 :color "#25233a")
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#20233d")
     (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
 
 (defn chip [state i]
   (let [x (cell-x i)
-        y (cell-y i)]
+        y (cell-y i)
+        active (in-cross? (:focus state) i)
+        charged (charged? state i)]
     (group
-      (circle :x x :y y :r (if (near-focus? state i) 20 17) :color (chip-color state i))
-      (sprite :image :chips :frame (frame (chip-color-id state i)) :x (- x 19) :y (- y 19) :scale 0.78))))
+      (rect :x (- x 22) :y (- y 22) :w 44 :h 44 :color (if active "#0f172a" "#1f1d33"))
+      (if charged
+        (circle :x x :y y :r (+ 24 (* 4 (sin (+ (:t state) i)))) :color "#78350f")
+        empty)
+      (circle :x x :y y :r (if charged 20 (if active 18 15)) :color (volt-color state i))
+      (sprite :image :chips :frame (frame (volt-id state i)) :x (- x 19) :y (- y 19) :scale 0.78))))
+
+(defn zap-line [state i]
+  (if (in-cross? (:last state) i)
+    (line :from [(cell-x (:last state)) (cell-y (:last state))]
+          :angle (rad->deg (angle-to (cell-x (:last state)) (cell-y (:last state)) (cell-x i) (cell-y i)))
+          :length (dist (cell-x (:last state)) (cell-y (:last state)) (cell-x i) (cell-y i))
+          :width 3 :color "#fde68a")
+    empty))
 
 (defn trophy-chip [i]
   (sprite :image :sheet :src (case (mod i 4) 0 :red 1 :blue 2 :white else :gold)
           :x (+ 372 (* (mod i 2) 42)) :y (+ 92 (* (floor (/ i 2)) 42)) :scale 0.72))
 
+(defn chain-pip [i state]
+  (rect :x (+ 114 (* i 12)) :y 58 :w 9 :h 5
+        :color (if (< i (:chain state)) "#fde047" "#334155")))
+
 (defn over-panel [state]
   (if (= (:phase state) :over)
     (group
       (rect :x 98 :y 122 :w 284 :h 112 :color "#1f1d33")
-      (text :font :main :value "Blitz Complete" :x 154 :y 144 :size 24 :color "#f8fafc")
+      (text :font :main :value "Grid Discharged" :x 142 :y 144 :size 24 :color "#f8fafc")
       (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
       (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#c7d2fe"))
     empty))
 
 (defn view [state]
   (group
-    (clear "#141523")
+    (clear "#111827")
     (for [i (range 8)] (trophy-chip i))
-    (rect :x 0 :y 0 :w 480 :h 62 :color "#25233a")
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#20233d")
     (back-button)
-    (text :font :main :value "Chip Flip Blitz" :x 112 :y 17 :size 23 :color "#f8fafc")
+    (text :font :main :value "Volt Grid" :x 112 :y 17 :size 23 :color "#f8fafc")
     (text :font :main :value (str "Score " (:score state) "  " (ceil (:time state)) "s") :x 328 :y 21 :size 12 :color "#fde68a")
     (text :font :main :value (:message state) :x 114 :y 44 :size 11 :color "#c7d2fe")
-    (rect :x 104 :y 66 :w 256 :h 256 :color "#1f1d33")
+    (for [i (range 10)] (chain-pip i state))
+    (rect :x 104 :y 66 :w 256 :h 256 :color "#141523")
+    (if (> (:surge state) 0)
+      (rect :x 108 :y 70 :w 248 :h 248 :color "#3b2f12")
+      empty)
     (for [i (range 25)] (chip state i))
+    (if (> (:zap state) 0)
+      (for [i (range 25)] (zap-line state i))
+      empty)
     (over-panel state)))
