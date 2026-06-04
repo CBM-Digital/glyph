@@ -3,7 +3,10 @@
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/platform-kit.png"
            :item "../assets/kenney/strips/puzzle-kit.png"
-           :sheet "../assets/kenney/sheets/platform-tilemap.png"
+           :sheet {:path "../assets/kenney/sheets/platform-tilemap.png"
+                   :frames {:grass [0 0 16 16]
+                            :stone [16 0 16 16]
+                            :crate [32 0 16 16]}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
@@ -526,10 +529,9 @@
     (for [i (range 18)]
       (circle :x (+ 34 (* i 91)) :y (+ 44 (* (mod i 5) 24)) :r (+ 1 (mod i 3)) :color "#dbeafe"))
     (rect :x 0 :y 306 :w world-w :h 54 :color "#10251d")
-    (sprite :image :sheet :x 84 :y 76 :scale 0.44)
-    (sprite :image :sheet :x 604 :y 48 :scale 0.36)
-    (sprite :image :sheet :x 1136 :y 62 :scale 0.42)
-    (sprite :image :sheet :x 1422 :y 78 :scale 0.34)
+    (for [i (range 18)]
+      (sprite :image :sheet :src (if (= (mod i 3) 0) :grass (if (= (mod i 3) 1) :stone :crate))
+              :x (+ 84 (* i 86)) :y (+ 76 (* (mod i 4) 24)) :scale 1.2))
     (line :x1 0 :y1 304 :x2 world-w :y2 304 :width 4 :color "#4ade80")))
 
 (defn hud-heart [i state]

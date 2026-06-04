@@ -1,0 +1,161 @@
+(game potion-panic
+  :title "Potion Panic"
+  :size [480 360]
+  :assets {:items "../assets/kenney/strips/items-kit.png"
+           :sheet {:path "../assets/kenney/sheets/items-colored.png"
+                   :grid {:tile [40 40]
+                          :frames {:vial [0 0]
+                                   :leaf [1 0]
+                                   :crystal [2 0]
+                                   :bottle [0 1]}}}
+           :particle "../assets/kenney/strips/particle-kit.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :play :score 0 :streak 0 :step 0 :len 3
+              :a 0 :b 1 :c 2 :d 3 :splash 0 :sx 0 :sy 0 :flash 0
+              :message "Tap recipe ingredients in order"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn ing-color [n]
+  (case (mod n 4)
+    0 "#34d399"
+    1 "#f472b6"
+    2 "#60a5fa"
+    else "#facc15"))
+
+(defn ing-name [n]
+  (case (mod n 4)
+    0 "Mint"
+    1 "Berry"
+    2 "Dew"
+    else "Spark"))
+
+(defn recipe [state i]
+  (case i
+    0 (:a state)
+    1 (:b state)
+    2 (:c state)
+    else (:d state)))
+
+(defn bubble-x [i state] (+ 84 (* i 78) (* 10 (sin (+ (:t state) i)))))
+(defn bubble-y [i state] (+ 240 (* 54 (sin (+ (* (:t state) (+ 0.8 (* i 0.2))) i)))))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn hit-ing [i state]
+  (and (pointer-released?)
+       (point-in-circle? (pointer-x) (pointer-y) (circle-box (bubble-x i state) (bubble-y i state) 28))))
+
+(defn clicked-ing [state]
+  (let [hits (filter (range 4) (fn [i] (hit-ing i state)))]
+    (if (empty? hits) -1 (first hits))))
+
+(defn fresh-recipe [state]
+  (assoc state :a (rand-int 4) :b (rand-int 4) :c (rand-int 4) :d (rand-int 4) :step 0))
+
+(defn contaminated? [state i]
+  (and (> (:splash state) 0)
+       (< (dist (bubble-x i state) (bubble-y i state) (:sx state) (:sy state)) 52)))
+
+(defn tap-ing [state i]
+  (let [need (recipe state (:step state))
+        bad (or (contaminated? state i) (not= i need))]
+    (if bad
+      (do
+        (sound/play :pop :volume 0.74)
+        (assoc state :phase :over :message "Potion contaminated" :flash 1))
+      (let [step (+ (:step state) 1)
+            done (>= step (:len state))]
+        (do
+          (sound/play :blip :volume 0.72 :pitch (+ 0.9 (* step 0.08)))
+          (if done
+            (fresh-recipe
+              (assoc state :score (+ (:score state) 30 (* (:streak state) 6))
+                           :streak (+ (:streak state) 1)
+                           :len (min 4 (+ 3 (floor (/ (+ (:streak state) 1) 3))))
+                           :splash 0.5 :sx (bubble-x i state) :sy (bubble-y i state)
+                           :flash 1 :message "Perfect recipe"))
+            (assoc state :step step :splash 0.5 :sx (bubble-x i state) :sy (bubble-y i state)
+                         :message "Next ingredient")))))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [base (assoc state :t (+ (:t state) dt) :splash (max 0 (- (:splash state) dt)) :flash (max 0 (- (:flash state) (* dt 2))))
+            hit (clicked-ing base)]
+        (if (>= hit 0) (tap-ing base hit) base))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#31213b")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#fdf4ff")))
+
+(defn recipe-slot [state i]
+  (let [x (+ 154 (* i 42))
+        active (= i (:step state))]
+    (group
+      (circle :x x :y 94 :r (if active 18 14) :color (ing-color (recipe state i)))
+      (text :font :main :value (ing-name (recipe state i)) :x (- x 18) :y 116 :size 9 :color "#fdf4ff"))))
+
+(defn shelf-item [i]
+  (sprite :image :sheet :src (case (mod i 4) 0 :vial 1 :leaf 2 :crystal else :bottle)
+          :x (+ 326 (* (mod i 3) 34)) :y (+ 84 (* (floor (/ i 3)) 34)) :scale 0.76))
+
+(defn bubble [state i]
+  (let [x (bubble-x i state)
+        y (bubble-y i state)]
+    (group
+      (circle :x x :y y :r 30 :color (if (contaminated? state i) "#7f1d1d" (ing-color i)))
+      (sprite :image :items :frame (frame (+ i 1)) :x (- x 24) :y (- y 24) :scale 1)
+      (text :font :main :value (ing-name i) :x (- x 22) :y (+ y 32) :size 10 :color "#fdf4ff"))))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 98 :y 122 :w 284 :h 112 :color "#27162f")
+      (text :font :main :value "Potion Panic" :x 160 :y 144 :size 24 :color "#fdf4ff")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#f5d0fe"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#171021")
+    (for [i (range 9)] (shelf-item i))
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#31213b")
+    (back-button)
+    (text :font :main :value "Potion Panic" :x 112 :y 17 :size 23 :color "#fdf4ff")
+    (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 340 :y 21 :size 12 :color "#fde68a")
+    (text :font :main :value (:message state) :x 114 :y 44 :size 11 :color "#f5d0fe")
+    (rect :x 120 :y 76 :w 240 :h 64 :color "#27162f")
+    (for [i (range (:len state))] (recipe-slot state i))
+    (circle :x 240 :y 304 :r 46 :color "#0f766e")
+    (for [i (range 4)] (bubble state i))
+    (if (> (:splash state) 0)
+      (transform :x (- (:sx state) 24) :y (- (:sy state) 24) :scale (+ 1 (* (:splash state) 1.5))
+        (sprite :image :particle :frame (frame 2) :x 0 :y 0 :scale 1))
+      empty)
+    (over-panel state)))

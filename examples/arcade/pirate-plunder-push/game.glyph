@@ -1,0 +1,185 @@
+(game pirate-plunder-push
+  :title "Pirate Plunder Push"
+  :size [480 360]
+  :assets {:pirate "../assets/kenney/strips/pirate-kit.png"
+           :tiles {:path "../assets/kenney/sheets/pirate-tiles.png"
+                   :frames {:deck [0 0 32 32]
+                            :water [33 0 32 32]
+                            :crate [66 0 32 32]
+                            :post [99 0 32 32]}}
+           :items "../assets/kenney/strips/items-kit.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :play :score 0 :strikes 0 :px 224 :py 272
+              :cx 244 :cy 184 :cvx 0 :cvy 0 :cargo 0 :cool 0 :flash 0
+              :message "Dash into crates and push them to matching docks"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn cargo-color [n]
+  (case (mod n 3)
+    0 "#facc15"
+    1 "#38bdf8"
+    else "#fb7185"))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn player-box [state] (rect-box (- (:px state) 15) (- (:py state) 18) 30 36))
+(defn crate-box [state] (rect-box (- (:cx state) 18) (- (:cy state) 18) 36 36))
+(defn cannon-y [state] (+ 94 (* 164 (+ 0.5 (* 0.5 (sin (* (:t state) 1.35)))))))
+
+(defn pointer-dir [state]
+  (if (pointer-released?)
+    (let [dx (- (pointer-x) (:px state))
+          dy (- (pointer-y) (:py state))]
+      (if (> (abs dx) (abs dy))
+        (if (> dx 0) :right :left)
+        (if (> dy 0) :down :up)))
+    :none))
+
+(defn input-dir [state]
+  (cond
+    (pressed? :left) :left
+    (pressed? :right) :right
+    (pressed? :up) :up
+    (pressed? :down) :down
+    else (pointer-dir state)))
+
+(defn dir-x [dir]
+  (case dir
+    :left -1
+    :right 1
+    else 0))
+
+(defn dir-y [dir]
+  (case dir
+    :up -1
+    :down 1
+    else 0))
+
+(defn dash [state]
+  (let [dir (input-dir state)
+        dx (* (dir-x dir) 44)
+        dy (* (dir-y dir) 44)
+        px (clamp (+ (:px state) dx) 54 330)
+        py (clamp (+ (:py state) dy) 88 294)
+        moved (assoc state :px px :py py :cool 0.16)]
+    (if (and (not= dir :none) (overlap? (player-box moved) (crate-box moved)))
+      (do
+        (sound/play :blip :volume 0.6)
+        (assoc moved :cvx (* (dir-x dir) 190) :cvy (* (dir-y dir) 190)
+                     :cx (clamp (+ (:cx moved) (* (dir-x dir) 18)) 64 334)
+                     :cy (clamp (+ (:cy moved) (* (dir-y dir) 18)) 92 292)))
+      (if (not= dir :none) (do (sound/play :blip :volume 0.35) moved) state))))
+
+(defn next-crate [state message]
+  (assoc state :cx (rand-range 126 304) :cy (rand-range 116 264) :cvx 0 :cvy 0
+               :cargo (rand-int 3) :message message :flash 1))
+
+(defn dock-result [state]
+  (let [dock (cond
+               (< (:cx state) 54) 0
+               (> (:cx state) 342) 1
+               (> (:cy state) 302) 2
+               else -1)]
+    (if (= dock -1)
+      state
+      (if (= dock (:cargo state))
+        (do
+          (sound/play :blip :volume 0.85 :pitch 1.18)
+          (next-crate (assoc state :score (+ (:score state) 25) :flash 1) "Cargo stowed"))
+        (do
+          (sound/play :pop :volume 0.72)
+          (let [strikes (+ (:strikes state) 1)]
+            (if (>= strikes 3)
+              (assoc state :phase :over :strikes strikes :message "Wrong dock wrecked the haul")
+              (next-crate (assoc state :strikes strikes :flash 1) "Wrong dock"))))))))
+
+(defn cannon-hit? [state]
+  (overlap? (player-box state) (rect-box 40 (- (cannon-y state) 8) 312 16)))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [acted (if (<= (:cool state) 0) (dash state) state)
+            cx (clamp (+ (:cx acted) (* (:cvx acted) dt)) 44 358)
+            cy (clamp (+ (:cy acted) (* (:cvy acted) dt)) 86 318)
+            cvx (if (or (<= cx 44) (>= cx 358)) 0 (* (:cvx acted) 0.985))
+            cvy (if (or (<= cy 86) (>= cy 318)) 0 (* (:cvy acted) 0.985))
+            moved (assoc acted :t (+ (:t acted) dt) :cx cx :cy cy :cvx cvx :cvy cvy
+                         :cool (max 0 (- (:cool acted) dt)) :flash (max 0 (- (:flash acted) (* dt 2))))]
+        (if (cannon-hit? moved)
+          (do (sound/play :pop :volume 0.82) (assoc moved :phase :over :message "Cannon shadow caught you" :flash 1))
+          (dock-result moved)))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#3a2419")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#fff7ed")))
+
+(defn dock [x y w h label color]
+  (group
+    (rect :x x :y y :w w :h h :color "#1f2937")
+    (rect :x (+ x 5) :y (+ y 5) :w (- w 10) :h (- h 10) :color color)
+    (text :font :main :value label :x (+ x 8) :y (+ y 8) :size 11 :color "#111827")))
+
+(defn deck-tile [i]
+  (sprite :image :tiles :src (if (= (mod i 7) 0) :post (if (= (mod i 5) 0) :crate :deck))
+          :x (+ 78 (* (mod i 8) 32)) :y (+ 92 (* (floor (/ i 8)) 32)) :scale 1))
+
+(defn ship-board []
+  (group
+    (for [i (range 48)] (deck-tile i))
+    (for [i (range 10)]
+      (sprite :image :tiles :src :water :x (+ 12 (* i 36)) :y 322 :scale 1.1))))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 122 :w 288 :h 112 :color "#331b15")
+      (text :font :main :value "Plunder Lost" :x 158 :y 144 :size 24 :color "#fee2e2")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#fed7aa"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#172018")
+    (ship-board)
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#3a2419")
+    (back-button)
+    (text :font :main :value "Pirate Plunder Push" :x 102 :y 17 :size 22 :color "#fff7ed")
+    (text :font :main :value (str "Score " (:score state) "  Strikes " (:strikes state) "/3") :x 318 :y 21 :size 12 :color "#fde68a")
+    (text :font :main :value (:message state) :x 108 :y 44 :size 11 :color "#fed7aa")
+    (dock 16 122 54 84 "Gold" "#facc15")
+    (dock 352 122 54 84 "Blue" "#38bdf8")
+    (dock 182 306 120 38 "Red" "#fb7185")
+    (rect :x 40 :y (- (cannon-y state) 8) :w 312 :h 16 :color "#7f1d1d")
+    (circle :x 28 :y (cannon-y state) :r 13 :color "#111827")
+    (rect :x (- (:cx state) 18) :y (- (:cy state) 18) :w 36 :h 36 :color (cargo-color (:cargo state)))
+    (sprite :image :items :frame (frame (+ (:cargo state) 2)) :x (- (:cx state) 23) :y (- (:cy state) 23) :scale 0.92)
+    (transform :x (- (:px state) 24) :y (- (:py state) 24) :rotation (* 4 (sin (* (:t state) 8)))
+      (sprite :image :pirate :frame (frame 0) :x 0 :y 0 :scale 1))
+    (over-panel state)))

@@ -10,6 +10,12 @@
            :fish "assets/kenney/strips/fish-kit.png"
            :space "assets/kenney/strips/space-kit.png"
            :food "assets/kenney/strips/food-kit.png"
+           :puzzle "assets/kenney/strips/puzzle-kit.png"
+           :pirate "assets/kenney/strips/pirate-kit.png"
+           :board "assets/kenney/strips/boardgame-kit.png"
+           :town "assets/kenney/strips/tiny-town-kit.png"
+           :particle "assets/kenney/strips/particle-kit.png"
+           :items "assets/kenney/strips/items-kit.png"
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "assets/blip.wav"
            :theme "assets/theme.wav"}
@@ -17,7 +23,7 @@
   :update update
   :view view)
 
-(def initial {:t 0 :music false})
+(def initial {:t 0 :music false :page 0})
 
 (defn hit? [x y w h]
   (and (pointer-released?)
@@ -28,6 +34,11 @@
     (sound/play :blip :volume 0.7)
     (navigation/push scene)
     state))
+
+(defn flip-page [state page]
+  (do
+    (sound/play :blip :volume 0.5)
+    (assoc state :page page)))
 
 (defn arm-music [state]
   (if (:music state)
@@ -40,14 +51,24 @@
   (let [base (arm-music state)
         next (assoc base :t (+ (:t base) dt))]
     (cond
-      (hit? 22 96 212 50) (open "ski-slalom/game.glyph" next)
-      (hit? 246 96 212 50) (open "asteroid-belt/game.glyph" next)
-      (hit? 22 158 212 50) (open "tank-siege/game.glyph" next)
-      (hit? 246 158 212 50) (open "circuit-keep/game.glyph" next)
-      (hit? 22 220 212 50) (open "crown-cavern/game.glyph" next)
-      (hit? 246 220 212 50) (open "fishing-cove/game.glyph" next)
-      (hit? 22 282 212 50) (open "chef-chaos/game.glyph" next)
-      (hit? 246 282 212 50) (open "fussball-fever/game.glyph" next)
+      (and (= (:page next) 0) (hit? 398 42 60 22)) (flip-page next 1)
+      (and (= (:page next) 1) (hit? 398 42 60 22)) (flip-page next 0)
+      (and (= (:page next) 0) (hit? 22 96 212 50)) (open "ski-slalom/game.glyph" next)
+      (and (= (:page next) 0) (hit? 246 96 212 50)) (open "asteroid-belt/game.glyph" next)
+      (and (= (:page next) 0) (hit? 22 158 212 50)) (open "tank-siege/game.glyph" next)
+      (and (= (:page next) 0) (hit? 246 158 212 50)) (open "circuit-keep/game.glyph" next)
+      (and (= (:page next) 0) (hit? 22 220 212 50)) (open "crown-cavern/game.glyph" next)
+      (and (= (:page next) 0) (hit? 246 220 212 50)) (open "fishing-cove/game.glyph" next)
+      (and (= (:page next) 0) (hit? 22 282 212 50)) (open "chef-chaos/game.glyph" next)
+      (and (= (:page next) 0) (hit? 246 282 212 50)) (open "fussball-fever/game.glyph" next)
+      (and (= (:page next) 1) (hit? 22 96 212 50)) (open "rune-relay/game.glyph" next)
+      (and (= (:page next) 1) (hit? 246 96 212 50)) (open "pirate-plunder-push/game.glyph" next)
+      (and (= (:page next) 1) (hit? 22 158 212 50)) (open "market-mayhem/game.glyph" next)
+      (and (= (:page next) 1) (hit? 246 158 212 50)) (open "chip-flip-blitz/game.glyph" next)
+      (and (= (:page next) 1) (hit? 22 220 212 50)) (open "comet-courier/game.glyph" next)
+      (and (= (:page next) 1) (hit? 246 220 212 50)) (open "potion-panic/game.glyph" next)
+      (and (= (:page next) 1) (hit? 22 282 212 50)) (open "harbor-switchyard/game.glyph" next)
+      (and (= (:page next) 1) (hit? 246 282 212 50)) (open "starforge-spin/game.glyph" next)
       else next)))
 
 (defn icon-frame [image]
@@ -59,38 +80,92 @@
     :platform :f0
     :fish :f0
     :food :f1
+    :puzzle :f2
+    :pirate :f0
+    :board :f2
+    :town :f3
+    :particle :f0
+    :items :f4
     else :f2))
 
-(defn button-color [i]
-  (case (mod i 6)
-    0 "#203d52"
-    1 "#3e3151"
-    2 "#2f4938"
-    3 "#57402b"
-    4 "#29375a"
-    else "#4a2d37"))
+(defn card-color [i]
+  (case (mod i 8)
+    0 "#1f4e5f"
+    1 "#302f68"
+    2 "#31543f"
+    3 "#59462a"
+    4 "#263f6b"
+    5 "#24565d"
+    6 "#62373e"
+    else "#4f3b70"))
 
-(defn button [x y label tag image i]
+(defn accent-color [i]
+  (case (mod i 8)
+    0 "#67e8f9"
+    1 "#c4b5fd"
+    2 "#86efac"
+    3 "#fde68a"
+    4 "#93c5fd"
+    5 "#a5f3fc"
+    6 "#fca5a5"
+    else "#d8b4fe"))
+
+(defn card [x y label tag image i]
+  (let [bob (* 2 (sin (+ (* i 0.7) (* (mod i 3) 0.4))))]
+    (group
+      (rect :x x :y y :w 212 :h 50 :color "#101827")
+      (rect :x (+ x 3) :y (+ y 3) :w 206 :h 44 :color (card-color i))
+      (rect :x (+ x 3) :y (+ y 3) :w 5 :h 44 :color (accent-color i))
+      (circle :x (+ x 38) :y (+ y 27) :r 22 :color "#0f172a")
+      (transform :x (+ x 14) :y (+ y 5 bob) :rotation (* 3 (sin (+ i y)))
+        (sprite :image image :frame (icon-frame image) :x 0 :y 0 :scale 0.76))
+      (text :font :main :value label :x (+ x 58) :y (+ y 8) :size 15 :color "#f8fafc")
+      (text :font :main :value tag :x (+ x 58) :y (+ y 30) :size 9 :color "#e2e8f0"))))
+
+(defn page-button [state]
   (group
-    (rect :x x :y y :w 212 :h 50 :color (button-color i))
-    (rect :x (+ x 6) :y (+ y 6) :w 38 :h 38 :color "#111827")
-    (sprite :image image :frame (icon-frame image) :x (+ x 9) :y (+ y 8) :scale 0.58)
-    (text :font :main :value label :x (+ x 54) :y (+ y 9) :size 15 :color "#f8fafc")
-    (text :font :main :value tag :x (+ x 54) :y (+ y 30) :size 10 :color "#cbd5e1")))
+    (rect :x 398 :y 42 :w 60 :h 22 :color "#0f172a")
+    (rect :x 401 :y 45 :w 54 :h 16 :color "#334155")
+    (text :font :main :value (if (= (:page state) 0) "Next" "Prev") :x 414 :y 47 :size 11 :color "#f8fafc")))
+
+(defn star [i state]
+  (circle :x (+ 8 (mod (+ (* i 67) (floor (* (:t state) -14))) 472))
+          :y (+ 76 (mod (* i 41) 278))
+          :r (if (= (mod i 5) 0) 2 1)
+          :color (if (= (mod i 3) 0) "#67e8f9" "#475569")))
+
+(defn page-zero []
+  (group
+    (card 22 96 "Alpine Rush" "gates, jumps, stamina" :ski 0)
+    (card 246 96 "Asteroid Belt" "thrust, shoot, survive" :space 1)
+    (card 22 158 "Tank Siege" "arena waves, aim fire" :tank 2)
+    (card 246 158 "Circuit Keep" "build towers, hold path" :tower 3)
+    (card 22 220 "Crown Cavern" "run, double-jump, collect" :platform 4)
+    (card 246 220 "Fishing Cove" "cast, hook, upgrades" :fish 5)
+    (card 22 282 "Chef Chaos" "cook orders under pressure" :food 6)
+    (card 246 282 "Fussball Fever" "rods, spin shots, goals" :sports 7)))
+
+(defn page-one []
+  (group
+    (card 22 96 "Rune Relay" "rotate colors, chain runes" :puzzle 0)
+    (card 246 96 "Pirate Plunder" "dash, shove, dock crates" :pirate 1)
+    (card 22 158 "Market Mayhem" "draw routes, dodge traffic" :town 2)
+    (card 246 158 "Chip Flip Blitz" "flip crosses, score lines" :board 3)
+    (card 22 220 "Comet Courier" "sling cargo through gravity" :space 4)
+    (card 246 220 "Potion Panic" "recipe taps, splash risk" :items 5)
+    (card 22 282 "Harbor Switch" "toggle lanes, dock boats" :pirate 6)
+    (card 246 282 "Starforge Spin" "reverse, expand, cool core" :particle 7)))
 
 (defn view [state]
   (group
-    (clear "#111827")
-    (rect :x 0 :y 0 :w 480 :h 72 :color "#182235")
-    (transform :x 28 :y 14 :rotation (* 5 (sin (* (:t state) 2)))
-      (sprite :image :logo :x 0 :y 0 :scale 0.44))
-    (text :font :main :value "Glyph Arcade" :x 88 :y 16 :size 28 :color "#f8fafc")
-    (text :font :main :value "8 distinct games with full loops" :x 90 :y 48 :size 14 :color "#93c5fd")
-    (button 22 96 "Alpine Rush" "gates, jumps, stamina" :ski 0)
-    (button 246 96 "Asteroid Belt" "thrust, shoot, survive" :space 1)
-    (button 22 158 "Tank Siege" "arena waves, aim fire" :tank 2)
-    (button 246 158 "Circuit Keep" "build towers, hold path" :tower 3)
-    (button 22 220 "Crown Cavern" "run, double-jump, collect" :platform 4)
-    (button 246 220 "Fishing Cove" "cast, hook, reel tension" :fish 5)
-    (button 22 282 "Chef Chaos" "cook orders under pressure" :food 6)
-    (button 246 282 "Fussball Fever" "rods, spin shots, goals" :sports 7)))
+    (clear "#0d1320")
+    (for [i (range 38)] (star i state))
+    (rect :x 0 :y 0 :w 480 :h 72 :color "#141f33")
+    (rect :x 0 :y 70 :w 480 :h 3 :color "#67e8f9")
+    (transform :x 26 :y 13 :rotation (* 5 (sin (* (:t state) 2)))
+      (sprite :image :logo :x 0 :y 0 :scale 0.46))
+    (text :font :main :value "Glyph Arcade" :x 88 :y 14 :size 28 :color "#f8fafc")
+    (text :font :main :value (if (= (:page state) 0) "Page 1: polished action cabinet" "Page 2: mechanic lab cabinet") :x 90 :y 47 :size 13 :color "#93c5fd")
+    (text :font :main :value (if (= (:page state) 0) "8 games" "8 games") :x 350 :y 16 :size 11 :color "#cbd5e1")
+    (page-button state)
+    (if (= (:page state) 0) (page-zero) (page-one))))

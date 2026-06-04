@@ -10,7 +10,9 @@
   :update update
   :view view)
 
-(def initial {:t 0 :x 216 :drop-x 144 :drop-y -58 :bad-x 316 :bad-y -190 :score 0 :flash 0})
+(def initial {:t 0 :phase :play :x 216 :vx 0 :drop-x 144 :drop-y -58 :bad-x 316 :bad-y -190
+              :score 0 :charge 38 :streak 0 :flash 0 :shake 0
+              :message "Catch bright sparks. Avoid red static."})
 
 (defn frame [n]
   (case (mod n 8)
@@ -25,70 +27,122 @@
 
 (defn back? []
   (and (pointer-released?)
-       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 78 32))))
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 76 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 78))))
 
 (defn reset-good [state]
-  (assoc state :drop-x (rand-range 58 374) :drop-y -54))
+  (assoc state :drop-x (rand-range 58 374) :drop-y (rand-range -92 -42)))
 
 (defn reset-bad [state]
-  (assoc state :bad-x (rand-range 58 374) :bad-y (rand-range -230 -72)))
+  (assoc state :bad-x (rand-range 58 374) :bad-y (rand-range -240 -92)))
 
 (defn player-box [state]
   (rect-box (:x state) 278 58 58))
 
 (defn good-box [state]
-  (rect-box (:drop-x state) (:drop-y state) 44 44))
+  (rect-box (:drop-x state) (:drop-y state) 42 42))
 
 (defn bad-box [state]
-  (rect-box (:bad-x state) (:bad-y state) 44 44))
+  (rect-box (:bad-x state) (:bad-y state) 42 42))
+
+(defn update-play [dt state]
+  (let [speed (+ 126 (* (:score state) 4) (* (:streak state) 3))
+        ax (* (axis :move-x) 760)
+        vx (clamp (* (+ (:vx state) (* ax dt)) 0.84) -280 280)
+        x (clamp (+ (:x state) (* vx dt)) 34 388)
+        drop-y (+ (:drop-y state) (* dt speed))
+        bad-y (+ (:bad-y state) (* dt (+ 118 (* (:score state) 3))))
+        charge (clamp (- (:charge state) (* dt (+ 4 (* (:score state) 0.25)))) 0 100)
+        moved (assoc state
+                :t (+ (:t state) dt) :x x :vx vx :drop-y drop-y :bad-y bad-y :charge charge
+                :flash (max 0 (- (:flash state) (* dt 3)))
+                :shake (max 0 (- (:shake state) (* dt 2.6))))
+        caught (overlap? (player-box moved) (good-box moved))
+        clipped (overlap? (player-box moved) (bad-box moved))]
+    (cond
+      (<= charge 0)
+        (do (sound/play :pop :volume 0.82)
+            (assoc moved :phase :over :flash 1 :shake 0.5 :message "The vortex went dark"))
+      caught
+        (do
+          (sound/play :blip :volume 0.74 :pitch (+ 0.95 (* (:streak moved) 0.04)))
+          (reset-good (assoc moved
+                        :score (+ (:score moved) 1 (:streak moved))
+                        :streak (min 8 (+ (:streak moved) 1))
+                        :charge (min 100 (+ (:charge moved) 18))
+                        :flash 1
+                        :message "Spark captured")))
+      clipped
+        (do
+          (sound/play :pop :volume 0.75)
+          (reset-bad (assoc moved :streak 0 :charge (max 0 (- (:charge moved) 26))
+                                  :flash 0.8 :shake 0.34 :message "Static drain")))
+      (> drop-y 370) (reset-good (assoc moved :streak 0 :charge (max 0 (- (:charge moved) 10)) :message "Spark faded"))
+      (> bad-y 370) (reset-bad moved)
+      else moved)))
 
 (defn update [dt state]
   (cond
     (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
-    else
-      (let [speed (+ 122 (* (:score state) 4))
-            x (clamp (+ (:x state) (* (axis :move-x) dt 245)) 34 388)
-            drop-y (+ (:drop-y state) (* dt speed))
-            bad-y (+ (:bad-y state) (* dt (+ 104 (* (:score state) 3))))
-            moved (assoc state :t (+ (:t state) dt) :x x :drop-y drop-y :bad-y bad-y :flash (max 0 (- (:flash state) (* dt 3))))
-            caught (overlap? (player-box moved) (good-box moved))
-            clipped (overlap? (player-box moved) (bad-box moved))]
-        (cond
-          caught (do
-                   (sound/play :blip :volume 0.72)
-                   (reset-good (assoc moved :score (+ (:score moved) 1) :flash 1)))
-          clipped (do
-                    (sound/play :pop :volume 0.75)
-                    (reset-bad (assoc moved :score (max 0 (- (:score moved) 2)) :flash 1)))
-          (> drop-y 370) (reset-good moved)
-          (> bad-y 370) (reset-bad moved)
-          else moved))))
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt) :shake (max 0 (- (:shake state) (* dt 2))))
+    else (update-play dt state)))
 
 (defn back-button []
   (group
-    (rect :x 12 :y 12 :w 78 :h 32 :color "#2b203a")
-    (text :font :main :value "Back" :x 29 :y 19 :size 15 :color "#fdf4ff")))
+    (rect :x 12 :y 12 :w 76 :h 30 :color "#2b203a")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#fdf4ff")))
 
-(defn rail [x]
-  (rect :x x :y 92 :w 3 :h 214 :color "#2b203a"))
+(defn orbit-dot [i state]
+  (let [a (+ (* i 45) (* (:t state) 80))
+        r (+ 82 (* 14 (sin (+ i (* (:t state) 1.4)))))]
+    (sprite :image :kit :frame (frame i)
+            :x (- (+ 240 (* (cos (deg->rad a)) r)) 12)
+            :y (- (+ 206 (* (sin (deg->rad a)) r)) 12)
+            :scale 0.5)))
+
+(defn rail [x state]
+  (rect :x x :y 92 :w 3 :h 214 :color (if (> (:charge state) 30) "#49306c" "#7f1d1d")))
+
+(defn charge-bar [state]
+  (group
+    (rect :x 350 :y 46 :w 84 :h 8 :color "#111827")
+    (rect :x 350 :y 46 :w (* 0.84 (:charge state)) :h 8
+          :color (if (> (:charge state) 30) "#c084fc" "#fb7185"))))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 124 :w 288 :h 112 :color "#111827")
+      (rect :x 104 :y 132 :w 272 :h 96 :color "#2b203a")
+      (text :font :main :value "Vortex Lost" :x 150 :y 146 :size 26 :color "#fdf4ff")
+      (text :font :main :value (str "Score " (:score state) "  Chain " (:streak state)) :x 146 :y 180 :size 15 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 208 :size 15 :color "#d8b4fe"))
+    empty))
 
 (defn view [state]
-  (let [pulse (+ 1 (* (:flash state) 0.18))
-        wiggle (* 4 (sin (* (:t state) 8)))]
+  (let [pulse (+ 1 (* (:flash state) 0.2))
+        wiggle (* 8 (sin (* (:t state) 8)))
+        jitter (* (:shake state) 10 (sin (* (:t state) 70)))]
     (group
-      (clear "#15111d")
-      (sprite :image :sheet :x 312 :y 78 :scale 0.38)
-      (rect :x 0 :y 0 :w 480 :h 70 :color "#2b203a")
+      (clear (if (> (:flash state) 0.7) "#2f1937" "#120f1d"))
+      (for [i (range 8)] (orbit-dot i state))
+      (rect :x 0 :y 0 :w 480 :h 72 :color "#241936")
       (back-button)
-      (text :font :main :value "Particle Swirl" :x 116 :y 20 :size 25 :color "#fdf4ff")
-      (text :font :main :value (str "Score " (:score state)) :x 350 :y 25 :size 17 :color "#d8b4fe")
-      (text :font :main :value "Catch sparks in the storm" :x 118 :y 48 :size 13 :color "#d8b4fe")
-      (rail 96)
-      (rail 238)
-      (rail 380)
-      (circle :x 240 :y 306 :r 38 :color "#2b203a")
-      (sprite :image :kit :frame (frame 1) :x (:drop-x state) :y (:drop-y state) :scale 1)
-      (sprite :image :kit :frame (frame 3) :x (:bad-x state) :y (:bad-y state) :scale 1)
-      (transform :x (:x state) :y 278 :rotation wiggle :scale pulse
-        (sprite :image :kit :frame (frame 0) :x 0 :y 0 :scale 1.18))
-      (text :font :main :value "A/D or arrows" :x 190 :y 334 :size 15 :color "#d8b4fe"))))
+      (text :font :main :value "Particle Swirl" :x 106 :y 15 :size 23 :color "#fdf4ff")
+      (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 106 :y 43 :size 13 :color "#d8b4fe")
+      (text :font :main :value (:message state) :x 222 :y 44 :size 10 :color "#f5d0fe")
+      (charge-bar state)
+      (camera :x (- 0 jitter) :y 0 :zoom 1
+        (rail 96 state)
+        (rail 238 state)
+        (rail 380 state)
+        (circle :x 240 :y 306 :r (+ 34 (* (:flash state) 10)) :color "#2b203a")
+        (sprite :image :kit :frame (frame 1) :x (:drop-x state) :y (:drop-y state) :scale 1)
+        (sprite :image :kit :frame (frame 3) :x (:bad-x state) :y (:bad-y state) :scale 1.05)
+        (transform :x (:x state) :y 278 :rotation wiggle :scale pulse
+          (sprite :image :kit :frame (if (> (abs (:vx state)) 80) (frame 2) (frame 0)) :x 0 :y 0 :scale 1.18 :flip-x (< (:vx state) -5))))
+      (text :font :main :value "Keep charge alive with sparks" :x 154 :y 334 :size 13 :color "#d8b4fe")
+      (over-panel state))))

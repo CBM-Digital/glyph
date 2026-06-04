@@ -1,0 +1,176 @@
+(game market-mayhem
+  :title "Market Mayhem"
+  :size [480 360]
+  :assets {:town "../assets/kenney/strips/tiny-town-kit.png"
+           :map {:path "../assets/kenney/sheets/tiny-town-tilemap.png"
+                 :frames {:grass [0 0 16 16]
+                          :stone [17 0 16 16]
+                          :stall [34 0 16 16]
+                          :tree [51 0 16 16]}}
+           :items "../assets/kenney/sheets/items-colored.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :plan :score 0 :combo 0 :time 60
+              :x 74 :y 282 :tx 74 :ty 282 :req 0 :flash 0
+              :message "Drag a route, release to send the courier"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn req-x [req]
+  (case (mod req 4)
+    0 372
+    1 234
+    2 390
+    else 142))
+
+(defn req-y [req]
+  (case (mod req 4)
+    0 100
+    1 104
+    2 250
+    else 210))
+
+(defn item-name [req]
+  (case (mod req 4)
+    0 "Bread"
+    1 "Tools"
+    2 "Flowers"
+    else "Fruit"))
+
+(defn traffic-x [state i]
+  (+ 116 (mod (+ (* i 83) (floor (* (:t state) (+ 38 (* i 7))))) 270)))
+
+(defn traffic-y [i]
+  (case (mod i 3)
+    0 150
+    1 206
+    else 254))
+
+(defn courier-box [state] (rect-box (- (:x state) 13) (- (:y state) 16) 26 32))
+(defn traffic-box [state i] (rect-box (- (traffic-x state i) 15) (- (traffic-y i) 12) 30 24))
+
+(defn traffic-hit? [state]
+  (or (overlap? (courier-box state) (traffic-box state 0))
+      (overlap? (courier-box state) (traffic-box state 1))
+      (overlap? (courier-box state) (traffic-box state 2))))
+
+(defn start-run [state]
+  (if (pointer-released?)
+    (do
+      (sound/play :blip :volume 0.62)
+      (assoc state :phase :run :tx (clamp (pointer-x) 58 420) :ty (clamp (pointer-y) 88 302)
+                   :message "Courier committed"))
+    state))
+
+(defn move-run [dt state]
+  (let [angle (angle-to (:x state) (:y state) (:tx state) (:ty state))
+        speed 158
+        x (+ (:x state) (* (cos angle) speed dt))
+        y (+ (:y state) (* (sin angle) speed dt))
+        near-target (< (dist x y (:tx state) (:ty state)) 10)
+        near-request (< (dist x y (req-x (:req state)) (req-y (:req state))) 32)]
+    (cond
+      near-request
+        (do
+          (sound/play :blip :volume 0.85 :pitch 1.2)
+          (assoc state :phase :plan :x 74 :y 282 :tx 74 :ty 282
+                       :score (+ (:score state) 20 (* (:combo state) 5))
+                       :combo (+ (:combo state) 1) :req (mod (+ (:req state) 1 (rand-int 3)) 4)
+                       :flash 1 :message "Delivery chain"))
+      near-target
+        (do
+          (sound/play :pop :volume 0.44)
+          (assoc state :phase :plan :x 74 :y 282 :tx 74 :ty 282 :combo 0
+                       :message "Route missed the order"))
+      else (assoc state :x x :y y))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [timed (assoc state :t (+ (:t state) dt) :time (- (:time state) dt) :flash (max 0 (- (:flash state) (* dt 2))))]
+        (cond
+          (<= (:time timed) 0) (assoc timed :phase :over :message "Market closed")
+          (= (:phase timed) :plan) (start-run timed)
+          (= (:phase timed) :run)
+            (let [run (move-run dt timed)]
+              (if (traffic-hit? run)
+                (do (sound/play :pop :volume 0.8) (assoc run :phase :over :message "Traffic jammed the route" :flash 1))
+                run))
+          else timed))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#23351f")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f7fee7")))
+
+(defn shop [x y label color frame-id]
+  (group
+    (rect :x (- x 24) :y (- y 22) :w 48 :h 44 :color color)
+    (sprite :image :town :frame (frame frame-id) :x (- x 24) :y (- y 34) :scale 1)
+    (text :font :main :value label :x (- x 20) :y (+ y 22) :size 10 :color "#f7fee7")))
+
+(defn traffic [state i]
+  (sprite :image :town :frame (frame (+ i 3)) :x (- (traffic-x state i) 21) :y (- (traffic-y i) 21) :scale 0.88))
+
+(defn market-tile [i]
+  (let [x (+ 42 (* (mod i 12) 34))
+        y (+ 82 (* (floor (/ i 12)) 34))]
+    (sprite :image :map :src (case (mod i 5) 0 :tree 1 :stall 2 :stone else :grass)
+            :x x :y y :scale 1.5)))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 98 :y 122 :w 284 :h 112 :color "#1f2f1b")
+      (text :font :main :value "Market Closed" :x 154 :y 144 :size 24 :color "#f7fee7")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#bbf7d0"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#172312")
+    (for [i (range 60)] (market-tile i))
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#23351f")
+    (back-button)
+    (text :font :main :value "Market Mayhem" :x 112 :y 17 :size 23 :color "#f7fee7")
+    (text :font :main :value (str "Score " (:score state) "  " (ceil (:time state)) "s") :x 332 :y 21 :size 12 :color "#fde68a")
+    (text :font :main :value (str "Need " (item-name (:req state)) "  Combo " (:combo state)) :x 114 :y 44 :size 11 :color "#bbf7d0")
+    (line :from [74 282] :angle 0 :length 326 :width 5 :color "#395235")
+    (line :from [130 150] :angle 0 :length 268 :width 5 :color "#395235")
+    (line :from [130 206] :angle 0 :length 268 :width 5 :color "#395235")
+    (shop 372 100 "Bread" "#854d0e" 0)
+    (shop 234 104 "Tools" "#0f766e" 1)
+    (shop 390 250 "Flowers" "#7e22ce" 2)
+    (shop 142 210 "Fruit" "#be123c" 3)
+    (circle :x (req-x (:req state)) :y (req-y (:req state)) :r (+ 26 (* (:flash state) 8)) :color "#fde68a")
+    (for [i (range 3)] (traffic state i))
+    (if (= (:phase state) :plan)
+      (line :from [74 282] :angle (rad->deg (angle-to 74 282 (if (pointer-held?) (pointer-x) (:tx state)) (if (pointer-held?) (pointer-y) (:ty state)))) :length (dist 74 282 (if (pointer-held?) (pointer-x) (:tx state)) (if (pointer-held?) (pointer-y) (:ty state))) :width 2 :color "#fef3c7")
+      (line :from [74 282] :angle (rad->deg (angle-to 74 282 (:tx state) (:ty state))) :length (dist 74 282 (:tx state) (:ty state)) :width 2 :color "#fef3c7"))
+    (sprite :image :town :frame (frame 6) :x (- (:x state) 22) :y (- (:y state) 24) :scale 0.92)
+    (over-panel state)))

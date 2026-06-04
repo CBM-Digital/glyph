@@ -3,7 +3,9 @@
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/tower-defense-kit.png"
            :enemy "../assets/kenney/strips/tiny-battle-kit.png"
-           :sheet "../assets/kenney/sheets/tower-defense.png"
+           :sheet {:path "../assets/kenney/sheets/tower-defense.png"
+                   :frames {:relay [0 0 32 32]
+                            :plate [32 0 32 32]}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
@@ -620,7 +622,9 @@
   (group
     (clear "#0f1f18")
     (rect :x 0 :y 0 :w 360 :h 360 :color "#102019")
-    (sprite :image :sheet :x 10 :y 294 :scale 0.22)
+    (for [i (range 8)]
+      (sprite :image :sheet :src (if (= (mod i 2) 0) :relay :plate)
+              :x (+ 16 (* i 38)) :y 304 :scale 0.75))
     (draw-path)
     (draw-base)
     (for [s slot-keys] (draw-slot state s))

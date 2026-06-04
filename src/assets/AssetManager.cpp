@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <utility>
 
 namespace glyph::assets {
 namespace {
@@ -59,6 +60,57 @@ SourceRect parseSourceRect(const script::Value& value, std::string_view field) {
   return rect;
 }
 
+std::pair<int, int> parseGridPair(const script::Value& value, std::string_view field,
+                                  std::pair<int, int> fallback) {
+  if (value.kind == script::ValueKind::Nil) {
+    return fallback;
+  }
+  if (value.kind != script::ValueKind::Vector || value.vector->size() != 2) {
+    throw script::RuntimeError(std::string(field) + " must be [x y]");
+  }
+  const int x = sourceRectNumber((*value.vector)[0], field);
+  const int y = sourceRectNumber((*value.vector)[1], field);
+  if (x < 0 || y < 0) {
+    throw script::RuntimeError(std::string(field) + " values must be non-negative");
+  }
+  return {x, y};
+}
+
+void parseGridFrames(AssetInfo& info, const script::Value& grid, StringInterner& interner) {
+  if (grid.kind != script::ValueKind::Map) {
+    throw script::RuntimeError("asset :grid must be a map");
+  }
+
+  const script::Value* tileValue = mapField(grid, interner, ":tile");
+  if (!tileValue) {
+    throw script::RuntimeError("asset :grid requires :tile [w h]");
+  }
+  const auto tile = parseGridPair(*tileValue, ":grid :tile", {0, 0});
+  if (tile.first <= 0 || tile.second <= 0) {
+    throw script::RuntimeError("asset :grid :tile width/height must be positive");
+  }
+
+  const auto spacing = mapField(grid, interner, ":spacing")
+                           ? parseGridPair(*mapField(grid, interner, ":spacing"), ":grid :spacing", {0, 0})
+                           : std::pair<int, int>{0, 0};
+  const auto margin = mapField(grid, interner, ":margin")
+                          ? parseGridPair(*mapField(grid, interner, ":margin"), ":grid :margin", {0, 0})
+                          : std::pair<int, int>{0, 0};
+
+  const script::Value* frames = mapField(grid, interner, ":frames");
+  if (!frames || frames->kind != script::ValueKind::Map) {
+    throw script::RuntimeError("asset :grid requires :frames map");
+  }
+
+  for (const auto& [frameName, frameCell] : *frames->map) {
+    const auto cell = parseGridPair(frameCell, ":grid :frames", {0, 0});
+    info.frames[frameName] = SourceRect{margin.first + cell.first * (tile.first + spacing.first),
+                                        margin.second + cell.second * (tile.second + spacing.second),
+                                        tile.first,
+                                        tile.second};
+  }
+}
+
 } // namespace
 
 void AssetManager::loadManifest(const script::Value& manifest, StringInterner& interner) {
@@ -84,6 +136,13 @@ void AssetManager::loadManifest(const script::Value& manifest, StringInterner& i
       }
       info.path = path->text;
 
+      if (const script::Value* allowFullDraw = mapField(value, interner, ":allow-full-draw")) {
+        if (allowFullDraw->kind != script::ValueKind::Bool) {
+          throw script::RuntimeError("asset :allow-full-draw must be true or false");
+        }
+        info.allowFullDraw = allowFullDraw->boolean;
+      }
+
       if (const script::Value* frames = mapField(value, interner, ":frames")) {
         if (frames->kind != script::ValueKind::Map) {
           throw script::RuntimeError("asset :frames must be a map");
@@ -92,6 +151,10 @@ void AssetManager::loadManifest(const script::Value& manifest, StringInterner& i
           info.frames[frameName] = parseSourceRect(frameRect, ":frames");
         }
       }
+      if (const script::Value* grid = mapField(value, interner, ":grid")) {
+        parseGridFrames(info, *grid, interner);
+      }
+      info.atlas = !info.frames.empty();
     } else {
       throw script::RuntimeError("asset manifest values must be paths or asset maps");
     }

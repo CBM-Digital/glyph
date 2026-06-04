@@ -1,0 +1,132 @@
+(game comet-courier
+  :title "Comet Courier"
+  :size [480 360]
+  :assets {:space "../assets/kenney/strips/space-kit.png"
+           :particle "../assets/kenney/strips/particle-kit.png"
+           :items "../assets/kenney/strips/items-kit.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :aim :score 0 :streak 0 :x 70 :y 280 :vx 0 :vy 0
+              :angle -38 :power 0.65 :fuel 8 :flash 0
+              :message "Hold to aim, release to sling cargo"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn hazard-x [state] (+ 230 (* 96 (sin (* (:t state) 0.9)))))
+(defn hazard-y [state] (+ 176 (* 72 (cos (* (:t state) 1.2)))))
+
+(defn launch [state]
+  (if (or (released? :tap) (pointer-released?))
+    (let [a (deg->rad (:angle state))
+          speed (+ 160 (* (:power state) 170))]
+      (do
+        (sound/play :blip :volume 0.74)
+        (assoc state :phase :fly :vx (* (cos a) speed) :vy (* (sin a) speed) :fuel 8 :message "Cargo away")))
+    state))
+
+(defn aim-step [dt state]
+  (let [angle (if (pointer-held?) (rad->deg (angle-to (:x state) (:y state) (pointer-x) (pointer-y))) (+ (:angle state) (* (axis :move-x) dt 90)))
+        power (+ 0.5 (* 0.5 (sin (* (:t state) 2.4))))]
+    (launch (assoc state :angle angle :power power))))
+
+(defn grav [x y gx gy]
+  (let [d (max 42 (dist x y gx gy))]
+    (/ 8200 (* d d))))
+
+(defn fly-step [dt state]
+  (let [g1 (grav (:x state) (:y state) 176 154)
+        a1 (angle-to (:x state) (:y state) 176 154)
+        g2 (grav (:x state) (:y state) 314 214)
+        a2 (angle-to (:x state) (:y state) 314 214)
+        vx (+ (:vx state) (* (cos a1) g1 dt 210) (* (cos a2) g2 dt 210))
+        vy (+ (:vy state) (* (sin a1) g1 dt 210) (* (sin a2) g2 dt 210))
+        x (+ (:x state) (* vx dt))
+        y (+ (:y state) (* vy dt))
+        fuel (- (:fuel state) dt)
+        moved (assoc state :x x :y y :vx vx :vy vy :fuel fuel)]
+    (cond
+      (< (dist x y 414 96) 30)
+        (do
+          (sound/play :blip :volume 0.92 :pitch 1.25)
+          (assoc initial :score (+ (:score state) 50 (* (:streak state) 10))
+                         :streak (+ (:streak state) 1)
+                         :flash 1
+                         :message "Delivery orbit complete"))
+      (< (dist x y (hazard-x state) (hazard-y state)) 25)
+        (do (sound/play :pop :volume 0.8) (assoc moved :phase :over :message "Hazard clipped the pod" :flash 1))
+      (or (< x 14) (> x 466) (< y 72) (> y 346) (<= fuel 0))
+        (do (sound/play :pop :volume 0.72) (assoc moved :phase :over :message "Cargo lost in deep space" :flash 1))
+      else moved)))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [base (assoc state :t (+ (:t state) dt) :flash (max 0 (- (:flash state) (* dt 2))))]
+        (case (:phase base)
+          :aim (aim-step dt base)
+          :fly (fly-step dt base)
+          else base))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#17213b")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#eff6ff")))
+
+(defn star [i state]
+  (circle :x (+ 34 (mod (+ (* i 71) (floor (* (:t state) -12))) 416))
+          :y (+ 76 (mod (* i 47) 250))
+          :r (if (= (mod i 3) 0) 2 1)
+          :color "#dbeafe"))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 98 :y 122 :w 284 :h 112 :color "#111827")
+      (text :font :main :value "Courier Lost" :x 160 :y 144 :size 24 :color "#eff6ff")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#bfdbfe"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#08111f")
+    (for [i (range 42)] (star i state))
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#17213b")
+    (back-button)
+    (text :font :main :value "Comet Courier" :x 112 :y 17 :size 23 :color "#eff6ff")
+    (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 338 :y 21 :size 12 :color "#fde68a")
+    (text :font :main :value (:message state) :x 114 :y 44 :size 11 :color "#bfdbfe")
+    (circle :x 176 :y 154 :r 32 :color "#1d4ed8")
+    (circle :x 314 :y 214 :r 38 :color "#7c3aed")
+    (circle :x 414 :y 96 :r (+ 20 (* (:flash state) 10)) :color "#facc15")
+    (sprite :image :items :frame (frame 5) :x 391 :y 72 :scale 0.85)
+    (sprite :image :particle :frame (frame 3) :x (- (hazard-x state) 22) :y (- (hazard-y state) 22) :scale 0.9)
+    (if (= (:phase state) :aim)
+      (line :from [(:x state) (:y state)] :angle (:angle state) :length (+ 54 (* (:power state) 70)) :width 3 :color "#fef3c7")
+      empty)
+    (sprite :image :space :frame (frame 0) :x (- (:x state) 24) :y (- (:y state) 24) :scale 1 :rotation (+ 90 (rad->deg (angle-to 0 0 (:vx state) (:vy state)))))
+    (over-panel state)))

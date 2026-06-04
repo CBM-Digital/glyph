@@ -1,0 +1,139 @@
+(game starforge-spin
+  :title "Starforge Spin"
+  :size [480 360]
+  :assets {:particle "../assets/kenney/strips/particle-kit.png"
+           :puzzle "../assets/kenney/strips/puzzle-kit.png"
+           :space {:path "../assets/kenney/sheets/space-sheet.png"
+                   :grid {:tile [48 48]
+                          :frames {:planet [0 0]
+                                   :ring [1 0]
+                                   :station [2 0]
+                                   :moon [3 0]}}}
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :play :score 0 :heat 28 :rot 0 :dir 1
+              :pa 35 :pr 180 :pc 0 :flash 0 :message "Tap reverses spin, hold expands shield"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn color-hex [n]
+  (case (mod n 4)
+    0 "#facc15"
+    1 "#38bdf8"
+    2 "#34d399"
+    else "#fb7185"))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn shield-radius []
+  (if (or (held? :tap) (pointer-held?)) 82 56))
+
+(defn shield-color [state]
+  (mod (floor (/ (+ (:rot state) 45) 90)) 4))
+
+(defn particle-x [state]
+  (+ 240 (* (cos (deg->rad (:pa state))) (:pr state))))
+
+(defn particle-y [state]
+  (+ 198 (* (sin (deg->rad (:pa state))) (:pr state))))
+
+(defn spawn-particle [state message]
+  (assoc state :pa (rand-range 0 360) :pr 182 :pc (rand-int 4) :message message))
+
+(defn catch-particle [state]
+  (let [match (= (:pc state) (shield-color state))]
+    (if match
+      (do
+        (sound/play :blip :volume 0.82 :pitch 1.18)
+        (spawn-particle
+          (assoc state :score (+ (:score state) 12) :heat (max 0 (- (:heat state) 8)) :flash 1)
+          "Core cooled"))
+      (do
+        (sound/play :pop :volume 0.62)
+        (let [heat (+ (:heat state) 24)]
+          (if (>= heat 100)
+            (assoc state :phase :over :heat heat :message "Forge overheated" :flash 1)
+            (spawn-particle (assoc state :heat heat :flash 1) "Wrong color")))))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [dir (if (or (pressed? :tap) (pointer-pressed?)) (* -1 (:dir state)) (:dir state))
+            heat (clamp (+ (:heat state) (* dt (if (or (held? :tap) (pointer-held?)) 9 -3))) 0 110)
+            rot (mod (+ (:rot state) (* dir dt (+ 96 (* (:score state) 0.5)))) 360)
+            pr (- (:pr state) (* dt (+ 62 (* (:score state) 0.2))))
+            moved (assoc state :t (+ (:t state) dt) :dir dir :heat heat :rot rot :pr pr :flash (max 0 (- (:flash state) (* dt 2))))]
+        (cond
+          (>= heat 100) (do (sound/play :pop :volume 0.84) (assoc moved :phase :over :message "Forge overheated"))
+          (<= pr (shield-radius)) (catch-particle moved)
+          (<= pr 18) (catch-particle moved)
+          else moved))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#271f3e")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
+
+(defn arm [state n]
+  (let [angle (+ (:rot state) (* n 90))]
+    (line :from [240 198] :angle angle :length (shield-radius) :width 8 :color (color-hex n))))
+
+(defn star [i state]
+  (circle :x (+ 26 (mod (* i 67) 428))
+          :y (+ 72 (mod (+ (* i 41) (floor (* (:t state) -14))) 258))
+          :r 1
+          :color "#ddd6fe"))
+
+(defn orbit-prop [i]
+  (sprite :image :space :src (case (mod i 4) 0 :planet 1 :ring 2 :station else :moon)
+          :x (+ 316 (* (mod i 2) 42)) :y (+ 84 (* (floor (/ i 2)) 42)) :scale 0.62))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 98 :y 122 :w 284 :h 112 :color "#1c1430")
+      (text :font :main :value "Forge Overheated" :x 132 :y 144 :size 24 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#ddd6fe"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#0f1020")
+    (for [i (range 6)] (orbit-prop i))
+    (for [i (range 48)] (star i state))
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#271f3e")
+    (back-button)
+    (text :font :main :value "Starforge Spin" :x 112 :y 17 :size 23 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state) "  Heat " (floor (:heat state))) :x 326 :y 21 :size 12 :color "#fde68a")
+    (text :font :main :value (:message state) :x 114 :y 44 :size 11 :color "#ddd6fe")
+    (circle :x 240 :y 198 :r (+ 42 (* (:flash state) 8)) :color "#312e81")
+    (for [i (range 4)] (arm state i))
+    (circle :x 240 :y 198 :r 22 :color (color-hex (shield-color state)))
+    (sprite :image :puzzle :frame (frame (shield-color state)) :x 216 :y 174 :scale 1)
+    (sprite :image :particle :frame (frame (:pc state)) :x (- (particle-x state) 22) :y (- (particle-y state) 22) :scale 0.9)
+    (rect :x 112 :y 324 :w 256 :h 8 :color "#1f2937")
+    (rect :x 112 :y 324 :w (clamp (* 2.56 (:heat state)) 0 256) :h 8 :color "#fb7185")
+    (over-panel state)))

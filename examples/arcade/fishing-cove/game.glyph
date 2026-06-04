@@ -2,7 +2,12 @@
   :title "Fishing Cove"
   :size [480 360]
   :assets {:fish "../assets/kenney/strips/fish-kit.png"
-           :reef "../assets/kenney/sheets/fish-sheet.png"
+           :reef {:path "../assets/kenney/sheets/fish-sheet.png"
+                  :grid {:tile [44 48]
+                         :frames {:coral [0 0]
+                                  :weed [1 0]
+                                  :shell [2 0]
+                                  :rock [3 0]}}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
@@ -302,6 +307,10 @@
         y (+ 206 (* 18 (sin (+ i (* (:t state) 0.8)))))]
     (sprite :image :fish :frame (swim-frame i) :x (- x 42) :y y :scale 0.62)))
 
+(defn reef-piece [i]
+  (sprite :image :reef :src (case (mod i 4) 0 :coral 1 :weed 2 :shell else :rock)
+          :x (+ 260 (* (mod i 4) 38)) :y (+ 138 (* (floor (/ i 4)) 34)) :scale 0.78))
+
 (defn cast-preview [state]
   (let [aim (:aim state)
         power (:power state)
@@ -359,7 +368,7 @@
       (clear sky)
       (rect :x 0 :y 84 :w 480 :h 76 :color "#76b7ca")
       (circle :x 408 :y 42 :r 18 :color "#fff7b8")
-      (sprite :image :reef :x 278 :y 138 :scale 0.58)
+      (for [i (range 8)] (reef-piece i))
       (rect :x 0 :y 154 :w 480 :h 206 :color "#17617d")
       (for [i (range 8)] (water-band i))
       (for [i (range 7)] (bubble i state))

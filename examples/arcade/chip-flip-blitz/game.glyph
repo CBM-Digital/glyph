@@ -1,0 +1,153 @@
+(game chip-flip-blitz
+  :title "Chip Flip Blitz"
+  :size [480 360]
+  :assets {:chips "../assets/kenney/strips/boardgame-kit.png"
+           :sheet {:path "../assets/kenney/sheets/boardgame-chips.png"
+                   :grid {:tile [48 48]
+                          :frames {:red [0 0]
+                                   :blue [1 0]
+                                   :white [2 0]
+                                   :gold [3 0]}}}
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :play :score 0 :turn 0 :focus 12 :time 45 :flash 0
+              :message "Tap chips to flip a cross pattern"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn cell-x [i] (+ 132 (* (mod i 5) 48)))
+(defn cell-y [i] (+ 86 (* (floor (/ i 5)) 48)))
+
+(defn near-focus? [state i]
+  (let [f (:focus state)]
+    (or (= i f)
+        (= i (- f 1))
+        (= i (+ f 1))
+        (= i (- f 5))
+        (= i (+ f 5)))))
+
+(defn gold? [i]
+  (or (= i 2) (= i 10) (= i 18) (= i 24)))
+
+(defn chip-color-id [state i]
+  (if (gold? i)
+    3
+    (mod (+ i (:turn state) (if (near-focus? state i) 1 0)) 3)))
+
+(defn chip-color [state i]
+  (case (chip-color-id state i)
+    0 "#ef4444"
+    1 "#3b82f6"
+    2 "#e5e7eb"
+    else "#facc15"))
+
+(defn cell-hit [i]
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box (- (cell-x i) 20) (- (cell-y i) 20) 40 40))))
+
+(defn clicked-cell []
+  (let [hits (filter (range 25) (fn [i] (cell-hit i)))]
+    (if (empty? hits) -1 (first hits))))
+
+(defn row-score [state row color]
+  (let [base (* row 5)]
+    (if (and (= (chip-color-id state base) color)
+             (= (chip-color-id state (+ base 1)) color)
+             (= (chip-color-id state (+ base 2)) color)
+             (= (chip-color-id state (+ base 3)) color)
+             (= (chip-color-id state (+ base 4)) color))
+      20
+      0)))
+
+(defn board-bonus [state]
+  (+ (row-score state 0 0)
+     (row-score state 1 1)
+     (row-score state 2 0)
+     (row-score state 3 1)
+     (row-score state 4 0)
+     (if (near-focus? state 2) 8 0)
+     (if (near-focus? state 10) 8 0)
+     (if (near-focus? state 18) 8 0)
+     (if (near-focus? state 24) 8 0)))
+
+(defn settle-focus [state]
+  (if (= (mod (floor (* (:t state) 2)) 9) 0)
+    (assoc state :focus (mod (+ (:focus state) 6) 25))
+    state))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [timed (settle-focus (assoc state :t (+ (:t state) dt) :time (- (:time state) dt) :flash (max 0 (- (:flash state) (* dt 2)))))
+            cell (clicked-cell)]
+        (cond
+          (<= (:time timed) 0) (assoc timed :phase :over :message "Board settled")
+          (>= cell 0)
+            (do
+              (sound/play :blip :volume 0.65)
+              (let [flipped (assoc timed :focus cell :turn (+ (:turn timed) 1) :flash 1)]
+                (assoc flipped :score (+ (:score flipped) 3 (board-bonus flipped))
+                               :message (str "Cross flipped +" (+ 3 (board-bonus flipped))))))
+          else timed))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#25233a")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
+
+(defn chip [state i]
+  (let [x (cell-x i)
+        y (cell-y i)]
+    (group
+      (circle :x x :y y :r (if (near-focus? state i) 20 17) :color (chip-color state i))
+      (sprite :image :chips :frame (frame (chip-color-id state i)) :x (- x 19) :y (- y 19) :scale 0.78))))
+
+(defn trophy-chip [i]
+  (sprite :image :sheet :src (case (mod i 4) 0 :red 1 :blue 2 :white else :gold)
+          :x (+ 372 (* (mod i 2) 42)) :y (+ 92 (* (floor (/ i 2)) 42)) :scale 0.72))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 98 :y 122 :w 284 :h 112 :color "#1f1d33")
+      (text :font :main :value "Blitz Complete" :x 154 :y 144 :size 24 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 176 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#c7d2fe"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#141523")
+    (for [i (range 8)] (trophy-chip i))
+    (rect :x 0 :y 0 :w 480 :h 62 :color "#25233a")
+    (back-button)
+    (text :font :main :value "Chip Flip Blitz" :x 112 :y 17 :size 23 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state) "  " (ceil (:time state)) "s") :x 328 :y 21 :size 12 :color "#fde68a")
+    (text :font :main :value (:message state) :x 114 :y 44 :size 11 :color "#c7d2fe")
+    (rect :x 104 :y 66 :w 256 :h 256 :color "#1f1d33")
+    (for [i (range 25)] (chip state i))
+    (over-panel state)))

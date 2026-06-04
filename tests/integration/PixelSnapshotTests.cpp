@@ -63,7 +63,7 @@ std::filesystem::path snapshotRoot() {
 }
 
 std::filesystem::path snapshotPath(const std::string& name) {
-  return snapshotRoot() / (name + ".ppm");
+  return snapshotRoot() / (name + ".png");
 }
 
 struct Pixel {
@@ -82,62 +82,76 @@ Bitmap makeBitmap(int width, int height) {
   return Bitmap{width, height, std::vector<Pixel>(static_cast<std::size_t>(width * height))};
 }
 
-void writePPM(const Bitmap& bitmap, const std::filesystem::path& path) {
-  std::filesystem::create_directories(path.parent_path());
-  std::ofstream output(path, std::ios::binary);
-  require(static_cast<bool>(output), "write snapshot " + path.string());
-  output << "P6\n" << bitmap.width << ' ' << bitmap.height << "\n255\n";
-  for (const auto& pixel : bitmap.pixels) {
-    output.put(static_cast<char>(pixel.r));
-    output.put(static_cast<char>(pixel.g));
-    output.put(static_cast<char>(pixel.b));
-  }
-}
-
-Bitmap readPPM(const std::filesystem::path& path) {
-  std::ifstream input(path, std::ios::binary);
-  require(static_cast<bool>(input), "open snapshot " + path.string());
-  std::string magic;
-  int width = 0;
-  int height = 0;
-  int maxValue = 0;
-  input >> magic >> width >> height >> maxValue;
-  input.get();
-  require(magic == "P6", "snapshot is P6 PPM " + path.string());
-  require(width > 0 && height > 0 && maxValue == 255, "snapshot header " + path.string());
-
-  Bitmap bitmap = makeBitmap(width, height);
-  for (auto& pixel : bitmap.pixels) {
-    pixel.r = static_cast<glyph::u8>(input.get());
-    pixel.g = static_cast<glyph::u8>(input.get());
-    pixel.b = static_cast<glyph::u8>(input.get());
-  }
-  require(static_cast<bool>(input), "snapshot pixel data " + path.string());
-  return bitmap;
-}
-
 bool samePixel(const Pixel& lhs, const Pixel& rhs) {
   return lhs.r == rhs.r && lhs.g == rhs.g && lhs.b == rhs.b;
+}
+
+#if GLYPH_VISUAL_SNAPSHOT_HAS_SDL
+
+void writePNG(const Bitmap& bitmap, const std::filesystem::path& path) {
+  std::filesystem::create_directories(path.parent_path());
+  SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, bitmap.width, bitmap.height, 24,
+                                                        SDL_PIXELFORMAT_RGB24);
+  require(surface != nullptr, std::string("SDL_CreateRGBSurfaceWithFormat: ") + SDL_GetError());
+  require(SDL_LockSurface(surface) == 0, std::string("SDL_LockSurface: ") + SDL_GetError());
+
+  auto* rows = static_cast<glyph::u8*>(surface->pixels);
+  for (int y = 0; y < bitmap.height; ++y) {
+    auto* row = rows + y * surface->pitch;
+    for (int x = 0; x < bitmap.width; ++x) {
+      const Pixel& pixel = bitmap.pixels[static_cast<std::size_t>(y * bitmap.width + x)];
+      row[x * 3 + 0] = pixel.r;
+      row[x * 3 + 1] = pixel.g;
+      row[x * 3 + 2] = pixel.b;
+    }
+  }
+
+  SDL_UnlockSurface(surface);
+  const int result = IMG_SavePNG(surface, path.string().c_str());
+  SDL_FreeSurface(surface);
+  require(result == 0, "write snapshot " + path.string() + ": " + IMG_GetError());
+}
+
+Bitmap readPNG(const std::filesystem::path& path) {
+  SDL_Surface* loaded = IMG_Load(path.string().c_str());
+  require(loaded != nullptr, "open snapshot " + path.string() + ": " + IMG_GetError());
+  SDL_Surface* surface = SDL_ConvertSurfaceFormat(loaded, SDL_PIXELFORMAT_RGB24, 0);
+  SDL_FreeSurface(loaded);
+  require(surface != nullptr, "convert snapshot " + path.string() + ": " + SDL_GetError());
+
+  Bitmap bitmap = makeBitmap(surface->w, surface->h);
+  require(SDL_LockSurface(surface) == 0, std::string("SDL_LockSurface: ") + SDL_GetError());
+  auto* rows = static_cast<glyph::u8*>(surface->pixels);
+  for (int y = 0; y < bitmap.height; ++y) {
+    const auto* row = rows + y * surface->pitch;
+    for (int x = 0; x < bitmap.width; ++x) {
+      bitmap.pixels[static_cast<std::size_t>(y * bitmap.width + x)] =
+          Pixel{row[x * 3 + 0], row[x * 3 + 1], row[x * 3 + 2]};
+    }
+  }
+  SDL_UnlockSurface(surface);
+  SDL_FreeSurface(surface);
+  return bitmap;
 }
 
 void requireSnapshot(const Bitmap& actual, const std::string& name) {
   const auto expectedPath = snapshotPath(name);
   if (std::getenv("GLYPH_UPDATE_SNAPSHOTS")) {
-    writePPM(actual, expectedPath);
+    writePNG(actual, expectedPath);
     return;
   }
 
-  const Bitmap expected = readPPM(expectedPath);
+  const Bitmap expected = readPNG(expectedPath);
   if (actual.width != expected.width || actual.height != expected.height) {
-    const auto actualPath = std::filesystem::current_path() / "snapshot_failures" / (name + ".actual.ppm");
-    writePPM(actual, actualPath);
+    const auto actualPath = std::filesystem::current_path() / "snapshot_failures" / (name + ".actual.png");
+    writePNG(actual, actualPath);
     require(false, "snapshot dimensions differ for " + name + "; wrote " + actualPath.string());
   }
 
   for (std::size_t i = 0; i < actual.pixels.size(); ++i) {
     if (!samePixel(actual.pixels[i], expected.pixels[i])) {
-      const auto actualPath = std::filesystem::current_path() / "snapshot_failures" / (name + ".actual.ppm");
-      writePPM(actual, actualPath);
+      const auto actualPath = std::filesystem::current_path() / "snapshot_failures" / (name + ".actual.png");
+      writePNG(actual, actualPath);
       const int x = static_cast<int>(i % static_cast<std::size_t>(actual.width));
       const int y = static_cast<int>(i / static_cast<std::size_t>(actual.width));
       std::ostringstream message;
@@ -147,8 +161,6 @@ void requireSnapshot(const Bitmap& actual, const std::string& name) {
     }
   }
 }
-
-#if GLYPH_VISUAL_SNAPSHOT_HAS_SDL
 
 constexpr float pi = 3.14159265358979323846f;
 
@@ -777,7 +789,9 @@ std::vector<Scenario> arcadeScenarios() {
   const std::vector<std::string> slugs{
       "asteroid-belt", "chef-chaos",   "circuit-keep", "crown-cavern", "fishing-cove",
       "fussball-fever", "lane-dodger", "particle-swirl", "perfect-shot", "platform-hop",
-      "ski-slalom",    "stack-tower",  "tank-siege"};
+      "ski-slalom",    "stack-tower",  "tank-siege",   "rune-relay",   "pirate-plunder-push",
+      "market-mayhem", "chip-flip-blitz", "comet-courier", "potion-panic", "harbor-switchyard",
+      "starforge-spin"};
 
   std::vector<Scenario> scenarios;
   scenarios.push_back(Scenario{"index", root / "index.glyph",
@@ -805,6 +819,51 @@ std::vector<Scenario> arcadeScenarios() {
                                 InputStep{"charge", 0.25, {"tap"}},
                                 InputStep{"release", glyph::game::GameHost::fixedDt, {}, {"tap"}},
                                 InputStep{"after_shot", 0.35}}});
+  scenarios.push_back(Scenario{"rune-relay_input", root / "rune-relay" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"rotate_lane", glyph::game::GameHost::fixedDt, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{240.0f, 276.0f}}},
+                                InputStep{"fall", 0.35}}});
+  scenarios.push_back(Scenario{"pirate-plunder-push_input", root / "pirate-plunder-push" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"dash_right", glyph::game::GameHost::fixedDt, {"right"}},
+                                InputStep{"slide", 0.35, {}, {"right"}}}});
+  scenarios.push_back(Scenario{"market-mayhem_input", root / "market-mayhem" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"draw_route", 0.12, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{true, glyph::Vec2{372.0f, 100.0f}}},
+                                InputStep{"release_route", glyph::game::GameHost::fixedDt, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{372.0f, 100.0f}}},
+                                InputStep{"courier_run", 0.35}}});
+  scenarios.push_back(Scenario{"chip-flip-blitz_input", root / "chip-flip-blitz" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"flip_center", glyph::game::GameHost::fixedDt, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{228.0f, 182.0f}}},
+                                InputStep{"settle", 0.35}}});
+  scenarios.push_back(Scenario{"comet-courier_input", root / "comet-courier" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"aim_hold", 0.12, {"tap"}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{true, glyph::Vec2{210.0f, 170.0f}}},
+                                InputStep{"launch", glyph::game::GameHost::fixedDt, {}, {"tap"},
+                                          {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{210.0f, 170.0f}}},
+                                InputStep{"flight", 0.35}}});
+  scenarios.push_back(Scenario{"potion-panic_input", root / "potion-panic" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"tap_ingredient", glyph::game::GameHost::fixedDt, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{84.0f, 240.0f}}},
+                                InputStep{"splash", 0.35}}});
+  scenarios.push_back(Scenario{"harbor-switchyard_input", root / "harbor-switchyard" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"toggle_switch", glyph::game::GameHost::fixedDt, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{244.0f, 190.0f}}},
+                                InputStep{"boats_move", 0.35}}});
+  scenarios.push_back(Scenario{"starforge-spin_input", root / "starforge-spin" / "game.glyph",
+                               {InputStep{"initial"},
+                                InputStep{"reverse", glyph::game::GameHost::fixedDt, {"tap"}},
+                                InputStep{"expand", 0.35, {}, {}, {}, std::pair<bool, glyph::Vec2>{true, glyph::Vec2{240.0f, 198.0f}}},
+                                InputStep{"release", glyph::game::GameHost::fixedDt, {}, {"tap"}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{240.0f, 198.0f}}}}});
 
   return scenarios;
 }

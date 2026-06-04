@@ -9,11 +9,15 @@
   :update update
   :view view)
 
-(def initial {:t 0 :x 40 :dir 1 :score 0 :settled []})
+(def initial {:t 0 :phase :play :x 40 :dir 1 :score 0 :combo 0 :misses 0
+              :settled [] :flash 0 :shake 0 :message "Center blocks to climb the neon tower."})
 
 (defn back? []
   (and (pointer-released?)
-       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 76 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 78))))
 
 (defn frame-for [n]
   (case (mod n 5)
@@ -23,45 +27,112 @@
     3 :f3
     else :f4))
 
-(defn block-node [i item]
+(defn top-x [state]
+  (if (> (count (:settled state)) 0)
+    (:x (nth (:settled state) (- (count (:settled state)) 1)))
+    188))
+
+(defn stack-y [score]
+  (- 286 (* score 22)))
+
+(defn screen-y [score item-score]
+  (+ (stack-y item-score) (max 0 (- (* (- score 7) 22) 0))))
+
+(defn block-node [state i item]
   (sprite :image :block
           :frame (frame-for i)
           :x (:x item)
-          :y (:y item)
+          :y (screen-y (:score state) (:score item))
           :scale 3))
 
-(defn update [dt state]
-  (cond
-    (back?) (do (sound/play :pop :volume 0.6) (navigation/pop) state)
-    (pressed? :tap)
+(defn drop-block [state]
+  (let [target (top-x state)
+        diff (abs (- (:x state) target))
+        perfect (< diff 9)
+        ok (< diff 58)
+        settled-x (if perfect target (lerp (:x state) target 0.45))]
+    (if ok
       (do
-        (sound/play :blip :volume 0.75)
+        (sound/play :blip :volume 0.78 :pitch (if perfect 1.32 0.95))
         (assoc state
           :score (+ (:score state) 1)
-          :settled (conj (:settled state) {:x (:x state) :y (- 292 (* (:score state) 24))})))
+          :combo (if perfect (min 9 (+ (:combo state) 1)) 0)
+          :settled (conj (:settled state) {:x settled-x :score (:score state)})
+          :flash (if perfect 1 0.45)
+          :shake (if perfect 0.06 0.12)
+          :message (if perfect "Perfect lock" "Good enough")))
+      (let [misses (+ (:misses state) 1)]
+        (do
+          (sound/play :pop :volume 0.78)
+          (if (>= misses 3)
+            (assoc state :phase :over :misses misses :flash 0.9 :shake 0.45 :combo 0
+                        :message "The tower tipped")
+            (assoc state :misses misses :combo 0 :flash 0.75 :shake 0.32
+                        :message "Bad drop. Recenter.")))))))
+
+(defn update-play [dt state]
+  (cond
+    (pressed? :tap) (drop-block state)
     else
-      (let [next-x (+ (:x state) (* (:dir state) dt 190))
+      (let [next-x (+ (:x state) (* (:dir state) dt (+ 188 (* (:score state) 8))))
             turn (or (< next-x 28) (> next-x 356))
             dir (if turn (* -1 (:dir state)) (:dir state))]
         (assoc state
           :t (+ (:t state) dt)
           :dir dir
-          :x (clamp next-x 28 356)))))
+          :x (clamp next-x 28 356)
+          :flash (max 0 (- (:flash state) (* dt 2.7)))
+          :shake (max 0 (- (:shake state) (* dt 2.6)))))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt) :shake (max 0 (- (:shake state) (* dt 2))))
+    else (update-play dt state)))
 
 (defn back-button []
   (group
-    (rect :x 12 :y 12 :w 92 :h 36 :color "#2d3343")
-    (text :font :main :value "Back" :x 30 :y 20 :size 18 :color "#f8fafc")))
+    (rect :x 12 :y 12 :w 76 :h 30 :color "#253047")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
+
+(defn window [i state]
+  (rect :x (+ 24 (* i 52)) :y (+ 96 (* (mod i 3) 38)) :w 24 :h 34
+        :color (if (> (:flash state) 0) "#fef3c7" "#28405a")))
+
+(defn miss-mark [i state]
+  (circle :x (+ 374 (* i 22)) :y 48 :r 7
+          :color (if (< i (:misses state)) "#fb7185" "#334155")))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 124 :w 288 :h 112 :color "#111827")
+      (rect :x 104 :y 132 :w 272 :h 96 :color "#253047")
+      (text :font :main :value "Tower Tipped" :x 142 :y 146 :size 26 :color "#fee2e2")
+      (text :font :main :value (str "Height " (:score state) "  Combo " (:combo state)) :x 154 :y 180 :size 15 :color "#fde68a")
+      (text :font :main :value "Tap to rebuild" :x 180 :y 208 :size 15 :color "#bfdbfe"))
+    empty))
 
 (defn view [state]
-  (group
-    (clear "#15232e")
-    (back-button)
-    (text :font :main :value "Stack Tower" :x 150 :y 28 :size 28 :color "#f8fafc")
-    (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#a7f3d0")
-    (rect :x 56 :y 326 :w 368 :h 10 :color "#26394a")
-    (for [i (range (count (:settled state)))]
-      (block-node i (nth (:settled state) i)))
-    (transform :x (:x state) :y 88 :rotation (* 4 (sin (* (:t state) 8)))
-      (sprite :image :block :frame (frame-for (:score state)) :x 0 :y 0 :scale 3))
-    (text :font :main :value "Tap to drop the moving block" :x 124 :y 314 :size 18 :color "#dbeafe")))
+  (let [jitter (* (:shake state) 10 (sin (* (:t state) 72)))
+        active-y (screen-y (:score state) (:score state))]
+    (group
+      (clear (if (> (:flash state) 0.75) "#172f2c" "#111827"))
+      (for [i (range 9)] (window i state))
+      (rect :x 0 :y 0 :w 480 :h 74 :color "#172236")
+      (back-button)
+      (text :font :main :value "Stack Tower" :x 106 :y 14 :size 24 :color "#f8fafc")
+      (text :font :main :value (str "Height " (:score state) "  x" (:combo state)) :x 106 :y 43 :size 13 :color "#a7f3d0")
+      (text :font :main :value (:message state) :x 222 :y 44 :size 10 :color "#c7d2fe")
+      (for [i (range 3)] (miss-mark i state))
+      (camera :x (- 0 jitter) :y 0 :zoom 1
+        (rect :x 54 :y 326 :w 372 :h 10 :color "#2d4154")
+        (rect :x 64 :y 336 :w 352 :h 8 :color "#0f172a")
+        (line :from [(top-x state) 88] :angle 90 :length 220 :width 2 :color "#475569")
+        (for [i (range (count (:settled state)))]
+          (block-node state i (nth (:settled state) i)))
+        (transform :x (:x state) :y active-y :rotation (* 4 (sin (* (:t state) 8)))
+          (sprite :image :block :frame (frame-for (:score state)) :x 0 :y 0 :scale 3)))
+      (text :font :main :value "Tap to drop. Three bad drops ends the build." :x 106 :y 314 :size 13 :color "#dbeafe")
+      (over-panel state))))

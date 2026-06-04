@@ -2,7 +2,9 @@
   :title "Alpine Rush"
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/tiny-ski-kit.png"
-           :sheet "../assets/kenney/sheets/tiny-ski-tilemap.png"
+           :sheet {:path "../assets/kenney/sheets/tiny-ski-tilemap.png"
+                   :frames {:snow [0 0 16 16]
+                            :marker [16 0 16 16]}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
@@ -445,9 +447,9 @@
     (line :x1 398 :y1 0 :x2 420 :y2 course-h :width 4 :color "#bde8f6")
     (for [i (range 23)] (side-tree i state))
     (for [i (range 46)] (snow-spark i state))
-    (sprite :image :sheet :x 18 :y 72 :scale 0.54)
-    (sprite :image :sheet :x 280 :y 1188 :scale 0.48)
-    (sprite :image :sheet :x 24 :y 2210 :scale 0.5)
+    (for [i (range 30)]
+      (sprite :image :sheet :src (if (= (mod i 2) 0) :snow :marker)
+              :x (+ 18 (* (mod i 5) 42)) :y (+ 84 (* (floor (/ i 5)) 360)) :scale 1.1))
     (for [g gate-keys] (draw-gate state g))
     (for [h hazard-keys] (draw-hazard h))
     (for [p pickup-keys] (draw-pickup state p))

@@ -2,7 +2,11 @@
   :title "Asteroid Belt"
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/space-kit.png"
-           :sheet "../assets/kenney/sheets/space-sheet.png"
+           :sheet {:path "../assets/kenney/sheets/space-sheet.png"
+                   :grid {:tile [48 48]
+                          :frames {:planet [0 0]
+                                   :moon [1 0]
+                                   :station [2 0]}}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
@@ -641,7 +645,9 @@
 (defn title-panel [state]
   (group
     (rect :x 54 :y 90 :w 372 :h 166 :color "#0f172a")
-    (sprite :image :sheet :x 318 :y 112 :scale 0.36)
+    (sprite :image :sheet :src :planet :x 324 :y 116 :scale 0.72)
+    (sprite :image :sheet :src :moon :x 374 :y 168 :scale 0.54)
+    (sprite :image :sheet :src :station :x 334 :y 204 :scale 0.5)
     (text :font :main :value "Asteroid Belt" :x 92 :y 110 :size 33 :color "#e5f6ff")
     (text :font :main :value "Split rocks chain combos grab shields" :x 92 :y 154 :size 14 :color "#93c5fd")
     (text :font :main :value "Shoot saucers for bonus points" :x 92 :y 178 :size 14 :color "#fde68a")

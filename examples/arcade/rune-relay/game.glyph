@@ -1,0 +1,169 @@
+(game rune-relay
+  :title "Rune Relay"
+  :size [480 360]
+  :assets {:runes "../assets/kenney/strips/puzzle-kit.png"
+           :balls {:path "../assets/kenney/sheets/puzzle-balls.png"
+                   :grid {:tile [48 48]
+                          :frames {:sun [0 0]
+                                   :tide [1 0]
+                                   :leaf [2 0]
+                                   :moon [3 0]}}}
+           :particle "../assets/kenney/strips/particle-kit.png"
+           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def initial {:t 0 :phase :play :score 0 :chain 0 :overload 0 :flash 0
+              :c0 0 :c1 1 :c2 2 :lane 1 :color 1 :wild false :y 82
+              :message "Rotate altars to catch the falling rune"})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn color-name [n]
+  (case (mod n 4)
+    0 "SUN"
+    1 "TIDE"
+    2 "LEAF"
+    else "MOON"))
+
+(defn color-hex [n]
+  (case (mod n 4)
+    0 "#facc15"
+    1 "#38bdf8"
+    2 "#34d399"
+    else "#c084fc"))
+
+(defn lane-x [lane] (+ 108 (* lane 132)))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 80))))
+
+(defn hit-lane []
+  (cond
+    (and (pointer-released?) (point-in-rect? (pointer-x) (pointer-y) (rect-box 70 236 92 88))) 0
+    (and (pointer-released?) (point-in-rect? (pointer-x) (pointer-y) (rect-box 202 236 92 88))) 1
+    (and (pointer-released?) (point-in-rect? (pointer-x) (pointer-y) (rect-box 334 236 92 88))) 2
+    else -1))
+
+(defn lane-color [state lane]
+  (case lane
+    0 (:c0 state)
+    1 (:c1 state)
+    else (:c2 state)))
+
+(defn rotate-lane [state lane]
+  (case lane
+    0 (assoc state :c0 (mod (+ (:c0 state) 1) 4))
+    1 (assoc state :c1 (mod (+ (:c1 state) 1) 4))
+    2 (assoc state :c2 (mod (+ (:c2 state) 1) 4))
+    else state))
+
+(defn spawn-rune [state]
+  (let [lane (rand-int 3)
+        color (rand-int 4)
+        wild (= (rand-int 6) 0)]
+    (assoc state :lane lane :color color :wild wild :y 82)))
+
+(defn scramble [state lane]
+  (case lane
+    0 (assoc state :c0 (rand-int 4))
+    1 (assoc state :c1 (rand-int 4))
+    2 (assoc state :c2 (rand-int 4))
+    else state))
+
+(defn resolve-rune [state]
+  (let [match (or (:wild state) (= (:color state) (lane-color state (:lane state))))
+        overload (if match (:overload state) (+ (:overload state) 1))]
+    (if match
+      (do
+        (sound/play :blip :volume 0.72 :pitch (+ 0.9 (* (:chain state) 0.03)))
+        (spawn-rune
+          (scramble
+            (assoc state :score (+ (:score state) 10 (* (:chain state) 2))
+                         :chain (+ (:chain state) 1)
+                         :flash 1
+                         :message (if (:wild state) "Wild rune relayed" "Rune matched"))
+            (if (:wild state) (:lane state) -1))))
+      (do
+        (sound/play :pop :volume 0.65)
+        (if (>= overload 3)
+          (assoc state :phase :over :overload overload :flash 1 :message "Altars overloaded")
+          (spawn-rune (assoc state :overload overload :chain 0 :flash 1 :message "Wrong altar")))))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt))
+    else
+      (let [clicked (hit-lane)
+            rotated (if (>= clicked 0) (do (sound/play :blip :volume 0.45) (rotate-lane state clicked)) state)
+            y (+ (:y rotated) (* dt (+ 108 (* (:score rotated) 0.7))))
+            moved (assoc rotated :t (+ (:t rotated) dt) :y y :flash (max 0 (- (:flash rotated) (* dt 2.8))))]
+        (if (> y 247) (resolve-rune moved) moved))))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#2b2447")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
+
+(defn altar [state lane]
+  (let [x (lane-x lane)
+        c (lane-color state lane)]
+    (group
+      (rect :x (- x 46) :y 238 :w 92 :h 74 :color "#221b3a")
+      (circle :x x :y 272 :r 28 :color (color-hex c))
+      (sprite :image :runes :frame (frame c) :x (- x 24) :y 248 :scale 1)
+      (text :font :main :value (color-name c) :x (- x 25) :y 316 :size 10 :color "#e9d5ff"))))
+
+(defn shrine-orb [i]
+  (sprite :image :balls :src (case (mod i 4) 0 :sun 1 :tide 2 :leaf else :moon)
+          :x (+ 312 (* (mod i 2) 38)) :y (+ 84 (* (floor (/ i 2)) 36)) :scale 0.66))
+
+(defn falling-rune [state]
+  (let [x (lane-x (:lane state))
+        pulse (+ 1 (* (:flash state) 0.2))]
+    (transform :x (- x 24) :y (:y state) :scale pulse :rotation (* 45 (:t state))
+      (sprite :image (if (:wild state) :particle :runes)
+              :frame (frame (:color state))
+              :x 0 :y 0 :scale 1))))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 120 :w 288 :h 116 :color "#1f1633")
+      (text :font :main :value "Relay Broken" :x 162 :y 142 :size 24 :color "#fef2f2")
+      (text :font :main :value (str "Score " (:score state)) :x 190 :y 174 :size 17 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 204 :size 15 :color "#c4b5fd"))
+    empty))
+
+(defn view [state]
+  (group
+    (clear "#141124")
+    (for [i (range 8)] (shrine-orb i))
+    (rect :x 0 :y 0 :w 480 :h 64 :color "#211a37")
+    (back-button)
+    (text :font :main :value "Rune Relay" :x 112 :y 17 :size 24 :color "#f8fafc")
+    (text :font :main :value (str "Score " (:score state) "  Chain " (:chain state)) :x 312 :y 22 :size 13 :color "#fde68a")
+    (text :font :main :value (:message state) :x 120 :y 45 :size 11 :color "#c4b5fd")
+    (for [i (range 3)] (altar state i))
+    (if (= (:phase state) :play) (falling-rune state) empty)
+    (for [i (range (:overload state))]
+      (circle :x (+ 216 (* i 24)) :y 82 :r 8 :color "#fb7185"))
+    (over-panel state)))

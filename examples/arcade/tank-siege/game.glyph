@@ -2,7 +2,11 @@
   :title "Tank Siege"
   :size [480 360]
   :assets {:tank "../assets/kenney/strips/tank-kit.png"
-           :terrain "../assets/kenney/sheets/tanks-terrain.png"
+           :terrain {:path "../assets/kenney/sheets/tanks-terrain.png"
+                     :frames {:grass [0 0 32 32]
+                              :sand [32 0 32 32]
+                              :rock [64 0 32 32]
+                              :wall [96 0 32 32]}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
@@ -629,8 +633,9 @@
 (defn draw-terrain []
   (group
     (rect :x 0 :y 52 :w 360 :h 308 :color "#3e6a44")
-    (sprite :image :terrain :x 0 :y 52 :scale 1)
-    (sprite :image :terrain :x 0 :y 196 :scale 1)
+    (for [i (range 70)]
+      (sprite :image :terrain :src (case (mod i 9) 0 :rock 1 :wall 2 :sand else :grass)
+              :x (* (mod i 10) 36) :y (+ 52 (* (floor (/ i 10)) 36)) :scale 1.12))
     (line :x1 34 :y1 90 :x2 326 :y2 90 :width 24 :color "#bfae76")
     (line :x1 34 :y1 294 :x2 326 :y2 294 :width 24 :color "#bfae76")
     (line :x1 76 :y1 72 :x2 76 :y2 332 :width 20 :color "#bfae76")

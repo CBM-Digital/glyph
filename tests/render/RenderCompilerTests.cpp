@@ -113,6 +113,30 @@ void testCameraTransformAndSpriteCommands() {
   require(commands[4].type == glyph::render::DrawCommandType::PopCamera, "pop camera");
 }
 
+void testNamedGridAtlasSource() {
+  glyph::script::VM vm;
+  glyph::assets::AssetManager assets;
+  assets.loadManifest(vm.evalSource(R"(
+    {:tiles {:path "assets/tiles.png"
+             :grid {:tile [16 12]
+                    :spacing [2 3]
+                    :margin [1 4]
+                    :frames {:grass [3 2]}}}}
+  )"), vm.interner());
+
+  const auto tree = vm.evalSource(R"(
+    (sprite :image :tiles :src :grass :x 8 :y 9)
+  )");
+
+  glyph::render::RenderCompiler compiler(vm.interner(), &assets);
+  const auto commands = compiler.compile(tree);
+  require(commands.size() == 1, "grid atlas emits sprite");
+  require(commands[0].hasSourceRect, "grid atlas source rect enabled");
+  require(commands[0].sourceRect.x == 55 && commands[0].sourceRect.y == 34 &&
+              commands[0].sourceRect.w == 16 && commands[0].sourceRect.h == 12,
+          "grid atlas source rect");
+}
+
 } // namespace
 
 int main() {
@@ -120,6 +144,7 @@ int main() {
     testMilestoneAcceptance();
     testGroupAndPrimitiveCommands();
     testCameraTransformAndSpriteCommands();
+    testNamedGridAtlasSource();
   } catch (const glyph::script::ScriptError& error) {
     std::cerr << "ScriptError: " << error.what() << '\n';
     return 1;

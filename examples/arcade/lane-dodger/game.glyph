@@ -9,14 +9,12 @@
   :update update
   :view view)
 
-(def initial {:t 0 :lane 1 :enemy-lane 0 :enemy-y -40 :score 0 :flash 0})
+(def initial {:t 0 :phase :play :lane 1 :enemy-lane 0 :enemy-y -58 :next-lane 2
+              :score 0 :streak 0 :lives 3 :flash 0 :shake 0 :near 0
+              :message "Thread the traffic. Near misses build streak."})
 
 (defn lane-x [lane]
   (+ 126 (* lane 92)))
-
-(defn back? []
-  (and (pointer-released?)
-       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
 
 (defn lane-frame [n]
   (case (mod n 5)
@@ -26,41 +24,139 @@
     3 :f7
     else :f5))
 
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 76 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 78))))
+
+(defn steer-left? []
+  (or (pressed? :left) (and (pointer-released?) (< (pointer-x) 180) (> (pointer-y) 90))))
+
+(defn steer-right? []
+  (or (pressed? :right) (and (pointer-released?) (> (pointer-x) 300) (> (pointer-y) 90))))
+
+(defn spawn-next [state message]
+  (assoc state
+    :enemy-y -58
+    :enemy-lane (:next-lane state)
+    :next-lane (rand-int 3)
+    :message message))
+
+(defn move-player [state]
+  (cond
+    (steer-left?)
+      (do (sound/play :blip :volume 0.35)
+          (assoc state :lane (max 0 (- (:lane state) 1))))
+    (steer-right?)
+      (do (sound/play :blip :volume 0.35)
+          (assoc state :lane (min 2 (+ (:lane state) 1))))
+    else state))
+
+(defn update-play [dt state]
+  (let [steered (move-player state)
+        speed (+ 146 (* (:score steered) 5) (* (:streak steered) 3))
+        enemy-y (+ (:enemy-y steered) (* dt speed))
+        hit (and (> enemy-y 238) (< enemy-y 310) (= (:enemy-lane steered) (:lane steered)))
+        near (and (> enemy-y 252) (< enemy-y 318) (not= (:enemy-lane steered) (:lane steered)))
+        passed (> enemy-y 386)
+        base (assoc steered
+               :t (+ (:t steered) dt)
+               :enemy-y enemy-y
+               :flash (max 0 (- (:flash steered) (* dt 3.2)))
+               :shake (max 0 (- (:shake steered) (* dt 2.8)))
+               :near (if near 1 (max 0 (- (:near steered) (* dt 2)))))]
+    (cond
+      hit
+        (let [lives (- (:lives base) 1)]
+          (do
+            (sound/play :pop :volume 0.82)
+            (if (<= lives 0)
+              (assoc base :phase :over :lives 0 :streak 0 :flash 1 :shake 0.65
+                          :message "Traffic boxed you in")
+              (spawn-next (assoc base :lives lives :streak 0 :flash 1 :shake 0.48)
+                          "Scraped paint. Stay loose."))))
+      passed
+        (do
+          (sound/play :blip :volume 0.58 :pitch (+ 0.9 (* (:streak base) 0.04)))
+          (spawn-next (assoc base
+                        :score (+ (:score base) 1 (:streak base))
+                        :streak (min 8 (+ (:streak base) 1))
+                        :flash 0.32
+                        :near 0)
+                      "Clean pass"))
+      else base)))
+
 (defn update [dt state]
   (cond
-    (back?) (do (sound/play :pop :volume 0.6) (navigation/pop) state)
-    (pressed? :left)
-      (do (sound/play :blip :volume 0.35) (assoc state :lane (max 0 (- (:lane state) 1))))
-    (pressed? :right)
-      (do (sound/play :blip :volume 0.35) (assoc state :lane (min 2 (+ (:lane state) 1))))
-    else
-      (let [enemy-y (+ (:enemy-y state) (* dt (+ 120 (* (:score state) 4))))
-            passed (> enemy-y 390)
-            hit (and (> enemy-y 244) (< enemy-y 302) (= (:enemy-lane state) (:lane state)))]
-        (cond
-          hit (do
-                (sound/play :pop :volume 0.8)
-                (assoc state :enemy-y -40 :enemy-lane (rand-int 3) :score 0 :flash 1))
-          passed (do
-                   (sound/play :blip :volume 0.55)
-                   (assoc state :enemy-y -40 :enemy-lane (rand-int 3) :score (+ (:score state) 1)))
-          else (assoc state :t (+ (:t state) dt) :enemy-y enemy-y :flash (max 0 (- (:flash state) (* dt 3))))))))
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt) :shake (max 0 (- (:shake state) (* dt 2))))
+    else (update-play dt state)))
 
 (defn back-button []
   (group
-    (rect :x 12 :y 12 :w 92 :h 36 :color "#2d3343")
-    (text :font :main :value "Back" :x 30 :y 20 :size 18 :color "#f8fafc")))
+    (rect :x 12 :y 12 :w 76 :h 30 :color "#223040")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
+
+(defn dash [lane i state]
+  (rect :x (- (lane-x lane) 5)
+        :y (+ 84 (mod (+ (* i 58) (floor (* (:t state) 210))) 246))
+        :w 10 :h 26 :color "#f7d47b"))
+
+(defn road-edge [x state]
+  (group
+    (rect :x x :y 78 :w 5 :h 254 :color "#0f172a")
+    (for [i (range 6)]
+      (rect :x x :y (+ 86 (mod (+ (* i 54) (floor (* (:t state) 180))) 236))
+            :w 5 :h 22 :color "#93c5fd"))))
+
+(defn skyline [i state]
+  (let [h (+ 18 (* (mod i 4) 10))]
+    (rect :x (+ -18 (mod (+ (* i 54) (floor (* (:t state) -28))) 540))
+          :y (- 78 h) :w 36 :h h :color (if (= (mod i 2) 0) "#243447" "#1e293b"))))
+
+(defn heart [i state]
+  (sprite :image :car :frame (if (< i (:lives state)) :f4 :f2)
+          :x (+ 366 (* i 28)) :y 45 :scale 0.62))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 122 :w 288 :h 116 :color "#111827")
+      (rect :x 104 :y 130 :w 272 :h 100 :color "#253044")
+      (text :font :main :value "Crash Out" :x 166 :y 144 :size 27 :color "#fee2e2")
+      (text :font :main :value (str "Score " (:score state) "  Streak " (:streak state)) :x 146 :y 180 :size 16 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 208 :size 15 :color "#bfdbfe"))
+    empty))
 
 (defn view [state]
-  (group
-    (clear (if (> (:flash state) 0) "#3a1720" "#172017"))
-    (back-button)
-    (text :font :main :value "Lane Dodger" :x 146 :y 28 :size 28 :color "#f8fafc")
-    (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#fde68a")
-    (rect :x 116 :y 92 :w 248 :h 238 :color "#293927")
-    (line :x1 198 :y1 92 :x2 198 :y2 330 :width 2 :color "#66785f")
-    (line :x1 290 :y1 92 :x2 290 :y2 330 :width 2 :color "#66785f")
-    (sprite :image :car :frame (lane-frame (:enemy-lane state)) :x (lane-x (:enemy-lane state)) :y (:enemy-y state) :scale 2.4)
-    (transform :x (lane-x (:lane state)) :y 276 :rotation (* 3 (sin (* (:t state) 14)))
-      (sprite :image :car :frame :f0 :x 0 :y 0 :scale 2.4))
-    (text :font :main :value "Use left/right or A/D" :x 146 :y 332 :size 18 :color "#dbeafe")))
+  (let [jitter (* (:shake state) 9 (sin (* (:t state) 62)))
+        pulse (+ 1 (* (:flash state) 0.12))]
+    (group
+      (clear (if (> (:flash state) 0.7) "#3b1720" "#0d1721"))
+      (for [i (range 11)] (skyline i state))
+      (rect :x 0 :y 0 :w 480 :h 76 :color "#172333")
+      (back-button)
+      (text :font :main :value "Lane Dodger" :x 106 :y 14 :size 24 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 106 :y 43 :size 13 :color "#fde68a")
+      (text :font :main :value (:message state) :x 220 :y 44 :size 11 :color "#bfdbfe")
+      (for [i (range 3)] (heart i state))
+      (camera :x (- 0 jitter) :y 0 :zoom 1
+        (rect :x 86 :y 76 :w 308 :h 260 :color "#26352f")
+        (rect :x 106 :y 76 :w 268 :h 260 :color "#334134")
+        (road-edge 98 state)
+        (road-edge 377 state)
+        (for [i (range 5)] (dash 1 i state))
+        (for [i (range 5)] (dash 2 i state))
+        (rect :x 102 :y 304 :w 276 :h 28 :color "#1e293b")
+        (sprite :image :car :frame (lane-frame (:next-lane state)) :x (lane-x (:next-lane state)) :y 90 :scale 0.86)
+        (sprite :image :car :frame (lane-frame (:enemy-lane state)) :x (lane-x (:enemy-lane state)) :y (:enemy-y state) :scale 2.4)
+        (if (> (:near state) 0)
+          (circle :x (lane-x (:lane state)) :y 288 :r (+ 36 (* (:near state) 12)) :color "#facc15")
+          empty)
+        (transform :x (lane-x (:lane state)) :y 276 :rotation (* 5 (sin (* (:t state) 14))) :scale pulse
+          (sprite :image :car :frame :f0 :x 0 :y 0 :scale 2.4)))
+      (text :font :main :value "Left/right or tap road edges" :x 136 :y 337 :size 13 :color "#dbeafe")
+      (over-panel state))))

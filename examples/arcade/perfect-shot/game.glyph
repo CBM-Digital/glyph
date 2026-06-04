@@ -9,59 +9,127 @@
   :update update
   :view view)
 
-(def initial {:t 0 :angle 0 :target 42 :score 0 :flash 0})
+(def initial {:t 0 :phase :play :angle 0 :target 42 :score 0 :streak 0 :misses 0
+              :flash 0 :ring 0 :shake 0 :message "Tap when the cyan needle cuts the gold gate."})
 
 (defn back? []
   (and (pointer-released?)
-       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 92 36))))
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 76 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 78))))
 
 (defn shot-diff [angle target]
   (min (abs (- angle target)) (abs (- angle (+ target 360))) (abs (- (+ angle 360) target))))
 
-(defn update [dt state]
+(defn hit-window [state]
+  (max 7 (- 15 (floor (/ (:score state) 5)))))
+
+(defn next-target [state hit]
+  (mod (+ (:target state) (if hit 71 47) (* 13 (mod (:score state) 5))) 360))
+
+(defn update-play [dt state]
   (cond
-    (back?) (do (sound/play :pop :volume 0.6) (navigation/pop) state)
     (pressed? :tap)
       (let [diff (shot-diff (:angle state) (:target state))
-            hit (< diff 12)]
-        (do
-          (sound/play :blip :volume 0.8)
-          (assoc state
-            :score (if hit (+ (:score state) 1) (:score state))
-            :target (mod (+ (:target state) 67) 360)
-            :flash (if hit 1 0.45))))
+            hit (< diff (hit-window state))]
+        (if hit
+          (do
+            (sound/play :blip :volume 0.84 :pitch (+ 1 (* (:streak state) 0.035)))
+            (assoc state
+              :score (+ (:score state) 1 (:streak state))
+              :streak (min 9 (+ (:streak state) 1))
+              :target (next-target state true)
+              :flash 1
+              :ring 1
+              :shake 0.08
+              :message "Clean shot"))
+          (let [misses (+ (:misses state) 1)]
+            (do
+              (sound/play :pop :volume 0.72)
+              (if (>= misses 3)
+                (assoc state :phase :over :misses misses :streak 0 :flash 0.85 :shake 0.32
+                            :message "The rhythm broke")
+                (assoc state :misses misses :streak 0 :target (next-target state false)
+                            :flash 0.48 :ring 0.45 :shake 0.2 :message "Late cut"))))))
     else
       (assoc state
         :t (+ (:t state) dt)
-        :angle (mod (+ (:angle state) (* dt (+ 90 (* 18 (axis :move-x))))) 360)
-        :flash (max 0 (- (:flash state) (* dt 2))))))
+        :angle (mod (+ (:angle state) (* dt (+ 112 (* (:score state) 4) (* 34 (axis :move-x))))) 360)
+        :flash (max 0 (- (:flash state) (* dt 2.5)))
+        :ring (max 0 (- (:ring state) (* dt 1.8)))
+        :shake (max 0 (- (:shake state) (* dt 2.4))))))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt) :shake (max 0 (- (:shake state) (* dt 2))))
+    else (update-play dt state)))
 
 (defn orb-frame [score]
-  (case (mod score 4)
+  (case (mod score 5)
     0 :f0
     1 :f1
     2 :f2
-    else :f3))
+    3 :f3
+    else :f4))
 
 (defn back-button []
   (group
-    (rect :x 12 :y 12 :w 92 :h 36 :color "#2d3343")
-    (text :font :main :value "Back" :x 30 :y 20 :size 18 :color "#f8fafc")))
+    (rect :x 12 :y 12 :w 76 :h 30 :color "#24243a")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
+
+(defn star [i state]
+  (circle :x (+ 22 (mod (+ (* i 59) (floor (* (:t state) -18))) 436))
+          :y (+ 82 (mod (* i 37) 226))
+          :r (if (= (mod i 4) 0) 2 1)
+          :color (if (= (mod i 3) 0) "#5eead4" "#c7d2fe")))
+
+(defn miss-mark [i state]
+  (circle :x (+ 374 (* i 22)) :y 48 :r 7
+          :color (if (< i (:misses state)) "#fb7185" "#334155")))
+
+(defn tick-line [i cx cy]
+  (line :from [cx cy] :angle (* i 30) :length 92 :width (if (= (mod i 3) 0) 2 1)
+        :color (if (= (mod i 3) 0) "#475569" "#283044")))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 124 :w 288 :h 112 :color "#111827")
+      (rect :x 104 :y 132 :w 272 :h 96 :color "#27233d")
+      (text :font :main :value "Shot Missed" :x 152 :y 146 :size 26 :color "#fee2e2")
+      (text :font :main :value (str "Score " (:score state) "  Best chain " (:streak state)) :x 138 :y 180 :size 15 :color "#fde68a")
+      (text :font :main :value "Tap to restart" :x 180 :y 208 :size 15 :color "#bfdbfe"))
+    empty))
 
 (defn view [state]
   (let [cx 240
         cy 204
         angle (:angle state)
         target (:target state)
-        pulse (+ 1 (* (:flash state) 0.4))]
+        pulse (+ 1 (* (:flash state) 0.22))
+        jitter (* (:shake state) 8 (sin (* (:t state) 66)))]
     (group
-      (clear "#171720")
+      (clear (if (> (:flash state) 0.75) "#20332d" "#10111f"))
+      (for [i (range 38)] (star i state))
+      (rect :x 0 :y 0 :w 480 :h 74 :color "#18182c")
       (back-button)
-      (text :font :main :value "Perfect Shot" :x 142 :y 28 :size 28 :color "#f8fafc")
-      (text :font :main :value (str "Score " (:score state)) :x 190 :y 62 :size 20 :color "#a7f3d0")
-      (circle :x cx :y cy :r 82 :color "#2b2b3a")
-      (line :from [cx cy] :angle target :length 92 :width 3 :color "#facc15")
-      (line :from [cx cy] :angle angle :length 96 :width 3 :color "#72ddf7")
-      (transform :x (- cx 32) :y (- cy 32) :rotation (* (:t state) 120) :scale pulse
-        (sprite :image :orb :frame (orb-frame (:score state)) :x 0 :y 0 :scale 2))
-      (text :font :main :value "Tap when blue meets green" :x 132 :y 314 :size 18 :color "#dbeafe"))))
+      (text :font :main :value "Perfect Shot" :x 106 :y 14 :size 24 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 106 :y 43 :size 13 :color "#a7f3d0")
+      (text :font :main :value (:message state) :x 214 :y 44 :size 10 :color "#c7d2fe")
+      (for [i (range 3)] (miss-mark i state))
+      (camera :x (- 0 jitter) :y 0 :zoom 1
+        (circle :x cx :y cy :r 116 :color "#15172a")
+        (circle :x cx :y cy :r 98 :color "#25263b")
+        (for [i (range 12)] (tick-line i cx cy))
+        (circle :x cx :y cy :r (+ 72 (* (:ring state) 34)) :color "#134e4a")
+        (line :from [cx cy] :angle (- target (hit-window state)) :length 104 :width 3 :color "#f59e0b")
+        (line :from [cx cy] :angle (+ target (hit-window state)) :length 104 :width 3 :color "#f59e0b")
+        (line :from [cx cy] :angle target :length 112 :width 2 :color "#fde68a")
+        (line :from [cx cy] :angle angle :length 116 :width 4 :color "#67e8f9")
+        (transform :x (- cx 32) :y (- cy 32) :rotation (* (:t state) (+ 90 (* (:score state) 3))) :scale pulse
+          (sprite :image :orb :frame (orb-frame (:score state)) :x 0 :y 0 :scale 2)))
+      (text :font :main :value "Tap on the beat. Three misses ends the run." :x 112 :y 332 :size 13 :color "#dbeafe")
+      (over-panel state))))

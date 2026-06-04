@@ -4,7 +4,9 @@
   :assets {:kit "../assets/kenney/strips/platform-kit.png"
            :item "../assets/kenney/strips/puzzle-kit.png"
            :sheet {:path "../assets/kenney/sheets/platform-tilemap.png"
-                   :frames {:grass [0 0 16 16]}}
+                   :frames {:grass [0 0 16 16]
+                            :stone [16 0 16 16]
+                            :crate [32 0 16 16]}}
            :main "/System/Library/Fonts/Supplemental/Arial.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
@@ -12,7 +14,9 @@
   :update update
   :view view)
 
-(def initial {:t 0 :x 216 :drop-x 144 :drop-y -58 :bad-x 316 :bad-y -190 :score 0 :flash 0})
+(def initial {:t 0 :phase :play :x 216 :vx 0 :drop-x 144 :drop-y -58 :bad-x 316 :bad-y -190
+              :score 0 :streak 0 :lives 3 :flash 0 :shake 0
+              :message "Catch gems. Dodge jump pads gone wild."})
 
 (defn frame [n]
   (case (mod n 8)
@@ -27,71 +31,125 @@
 
 (defn back? []
   (and (pointer-released?)
-       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 78 32))))
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 76 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (and (pointer-released?) (> (pointer-y) 78))))
 
 (defn reset-good [state]
-  (assoc state :drop-x (rand-range 58 374) :drop-y -54))
+  (assoc state :drop-x (rand-range 58 374) :drop-y (rand-range -92 -42)))
 
 (defn reset-bad [state]
-  (assoc state :bad-x (rand-range 58 374) :bad-y (rand-range -230 -72)))
+  (assoc state :bad-x (rand-range 58 374) :bad-y (rand-range -240 -92)))
 
 (defn player-box [state]
   (rect-box (:x state) 278 58 58))
 
 (defn good-box [state]
-  (rect-box (:drop-x state) (:drop-y state) 44 44))
+  (rect-box (:drop-x state) (:drop-y state) 42 42))
 
 (defn bad-box [state]
-  (rect-box (:bad-x state) (:bad-y state) 44 44))
+  (rect-box (:bad-x state) (:bad-y state) 42 42))
+
+(defn update-play [dt state]
+  (let [speed (+ 128 (* (:score state) 4) (* (:streak state) 3))
+        ax (* (axis :move-x) 720)
+        vx (clamp (* (+ (:vx state) (* ax dt)) 0.86) -265 265)
+        x (clamp (+ (:x state) (* vx dt)) 34 388)
+        drop-y (+ (:drop-y state) (* dt speed))
+        bad-y (+ (:bad-y state) (* dt (+ 112 (* (:score state) 3))))
+        moved (assoc state
+                :t (+ (:t state) dt) :x x :vx vx :drop-y drop-y :bad-y bad-y
+                :flash (max 0 (- (:flash state) (* dt 3)))
+                :shake (max 0 (- (:shake state) (* dt 2.6))))
+        caught (overlap? (player-box moved) (good-box moved))
+        clipped (overlap? (player-box moved) (bad-box moved))]
+    (cond
+      caught
+        (do
+          (sound/play :blip :volume 0.74 :pitch (+ 0.95 (* (:streak moved) 0.04)))
+          (reset-good (assoc moved
+                        :score (+ (:score moved) 1 (:streak moved))
+                        :streak (min 8 (+ (:streak moved) 1))
+                        :flash 1
+                        :message "Gem pocketed")))
+      clipped
+        (let [lives (- (:lives moved) 1)]
+          (do
+            (sound/play :pop :volume 0.75)
+            (if (<= lives 0)
+              (assoc moved :phase :over :lives 0 :streak 0 :flash 1 :shake 0.45
+                           :message "The hop collapsed")
+              (reset-bad (assoc moved :lives lives :streak 0 :flash 0.75 :shake 0.32
+                                      :message "Ouch. Reset your rhythm.")))))
+      (> drop-y 370) (reset-good (assoc moved :streak 0 :message "Gem missed"))
+      (> bad-y 370) (reset-bad moved)
+      else moved)))
 
 (defn update [dt state]
   (cond
     (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
-    else
-      (let [speed (+ 122 (* (:score state) 4))
-            x (clamp (+ (:x state) (* (axis :move-x) dt 245)) 34 388)
-            drop-y (+ (:drop-y state) (* dt speed))
-            bad-y (+ (:bad-y state) (* dt (+ 104 (* (:score state) 3))))
-            moved (assoc state :t (+ (:t state) dt) :x x :drop-y drop-y :bad-y bad-y :flash (max 0 (- (:flash state) (* dt 3))))
-            caught (overlap? (player-box moved) (good-box moved))
-            clipped (overlap? (player-box moved) (bad-box moved))]
-        (cond
-          caught (do
-                   (sound/play :blip :volume 0.72)
-                   (reset-good (assoc moved :score (+ (:score moved) 1) :flash 1)))
-          clipped (do
-                    (sound/play :pop :volume 0.75)
-                    (reset-bad (assoc moved :score (max 0 (- (:score moved) 2)) :flash 1)))
-          (> drop-y 370) (reset-good moved)
-          (> bad-y 370) (reset-bad moved)
-          else moved))))
+    (and (= (:phase state) :over) (restart?)) initial
+    (= (:phase state) :over) (assoc state :t (+ (:t state) dt) :shake (max 0 (- (:shake state) (* dt 2))))
+    else (update-play dt state)))
 
 (defn back-button []
   (group
-    (rect :x 12 :y 12 :w 78 :h 32 :color "#26385c")
-    (text :font :main :value "Back" :x 29 :y 19 :size 15 :color "#f8fafc")))
+    (rect :x 12 :y 12 :w 76 :h 30 :color "#26385c")
+    (text :font :main :value "Back" :x 29 :y 18 :size 13 :color "#f8fafc")))
 
-(defn rail [x]
-  (rect :x x :y 92 :w 3 :h 214 :color "#26385c"))
+(defn rail [x state]
+  (group
+    (rect :x x :y 92 :w 4 :h 214 :color "#26385c")
+    (for [i (range 5)]
+      (rect :x (- x 8) :y (+ 98 (mod (+ (* i 54) (floor (* (:t state) 58))) 202))
+            :w 20 :h 4 :color "#41516e"))))
+
+(defn cloud [i state]
+  (circle :x (+ -28 (mod (+ (* i 86) (floor (* (:t state) -12))) 540))
+          :y (+ 88 (mod (* i 31) 82)) :r (+ 10 (mod i 4)) :color "#22314d"))
+
+(defn backdrop-tile [i]
+  (sprite :image :sheet :src (if (= (mod i 3) 0) :stone :crate)
+          :x (+ 316 (* (mod i 4) 30)) :y (+ 92 (* (floor (/ i 4)) 28)) :scale 1.35))
+
+(defn life [i state]
+  (sprite :image :item :frame (if (< i (:lives state)) (frame 4) (frame 1))
+          :x (+ 374 (* i 25)) :y 46 :scale 0.5))
+
+(defn over-panel [state]
+  (if (= (:phase state) :over)
+    (group
+      (rect :x 96 :y 124 :w 288 :h 112 :color "#111827")
+      (rect :x 104 :y 132 :w 272 :h 96 :color "#26385c")
+      (text :font :main :value "Hop Over" :x 166 :y 146 :size 26 :color "#fee2e2")
+      (text :font :main :value (str "Score " (:score state) "  Streak " (:streak state)) :x 146 :y 180 :size 15 :color "#ffd166")
+      (text :font :main :value "Tap to restart" :x 180 :y 208 :size 15 :color "#dbeafe"))
+    empty))
 
 (defn view [state]
   (let [pulse (+ 1 (* (:flash state) 0.18))
-        wiggle (* 4 (sin (* (:t state) 8)))]
+        wiggle (* 6 (sin (* (:t state) 8)))
+        jitter (* (:shake state) 10 (sin (* (:t state) 70)))]
     (group
-      (clear "#131c2e")
-      (sprite :image :sheet :x 312 :y 78 :scale 0.38)
-      (rect :x 0 :y 0 :w 480 :h 70 :color "#26385c")
+      (clear (if (> (:flash state) 0.7) "#20392f" "#101829"))
+      (for [i (range 6)] (cloud i state))
+      (for [i (range 8)] (backdrop-tile i))
+      (rect :x 0 :y 0 :w 480 :h 72 :color "#1d2e4c")
       (back-button)
-      (text :font :main :value "Platform Hop" :x 116 :y 20 :size 25 :color "#f8fafc")
-      (text :font :main :value (str "Score " (:score state)) :x 350 :y 25 :size 17 :color "#ffd166")
-      (text :font :main :value "Pocket gems between jumps" :x 118 :y 48 :size 13 :color "#ffd166")
-      (rail 96)
-      (rail 238)
-      (rail 380)
-      (circle :x 240 :y 306 :r 38 :color "#26385c")
-      (sprite :image :sheet :src :grass :x 216 :y 286 :scale 3)
-      (sprite :image :item :frame (frame 4) :x (:drop-x state) :y (:drop-y state) :scale 1)
-      (sprite :image :kit :frame (frame 2) :x (:bad-x state) :y (:bad-y state) :scale 1)
-      (transform :x (:x state) :y 278 :rotation wiggle :scale pulse
-        (sprite :image :kit :frame (frame 0) :x 0 :y 0 :scale 1.18))
-      (text :font :main :value "A/D or arrows" :x 190 :y 334 :size 15 :color "#ffd166"))))
+      (text :font :main :value "Platform Hop" :x 106 :y 15 :size 23 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state) "  x" (:streak state)) :x 106 :y 43 :size 13 :color "#ffd166")
+      (text :font :main :value (:message state) :x 222 :y 44 :size 10 :color "#bfdbfe")
+      (for [i (range 3)] (life i state))
+      (camera :x (- 0 jitter) :y 0 :zoom 1
+        (rail 96 state)
+        (rail 238 state)
+        (rail 380 state)
+        (circle :x 240 :y 306 :r 44 :color "#1d2e4c")
+        (sprite :image :sheet :src :grass :x 216 :y 286 :scale 3)
+        (sprite :image :item :frame (frame 4) :x (:drop-x state) :y (:drop-y state) :scale 1)
+        (sprite :image :kit :frame (frame 2) :x (:bad-x state) :y (:bad-y state) :scale 1)
+        (transform :x (:x state) :y 278 :rotation wiggle :scale pulse
+          (sprite :image :kit :frame (if (> (abs (:vx state)) 80) (frame 1) (frame 0)) :x 0 :y 0 :scale 1.18 :flip-x (< (:vx state) -5))))
+      (text :font :main :value "A/D, arrows, or hold sideways" :x 146 :y 334 :size 13 :color "#ffd166")
+      (over-panel state))))

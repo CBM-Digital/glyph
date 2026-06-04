@@ -180,6 +180,11 @@ DrawCommand RenderCompiler::compileSprite(const script::Value& node) const {
       fail("sprite :src must be [x y w h] or an atlas frame keyword");
     }
   }
+  if (assets_ && !command.hasSourceRect && command.frame == 0) {
+    if (const auto* asset = assets_->info(command.image); asset && asset->atlas && !asset->allowFullDraw) {
+      fail("sprite references an atlas texture without :src or :frame");
+    }
+  }
   command.x = numberField(node, ":x");
   command.y = numberField(node, ":y");
   command.scale = numberField(node, ":scale", 1.0);

@@ -34,6 +34,8 @@ struct AssetInfo {
   AssetType type = AssetType::Unknown;
   std::string path;
   std::unordered_map<StringId, SourceRect> frames;
+  bool atlas = false;
+  bool allowFullDraw = false;
 };
 
 class AssetManager {
