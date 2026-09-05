@@ -1,0 +1,548 @@
+(game alpine-rush
+  :title "Alpine Rush"
+  :size [480 360]
+  :assets {:kit "../assets/kenney/strips/tiny-ski-kit.png"
+           :sheet {:path "../assets/kenney/sheets/tiny-ski-tilemap.png"
+                   :frames {:snow [0 0 16 16]
+                            :marker [16 0 16 16]}}
+           :main "../assets/fonts/NotoSans-Regular.ttf"
+           :blip "../assets/blip.wav"
+           :pop "../assets/pop.wav"
+           :theme "../assets/theme.wav"}
+  :initial initial
+  :update update
+  :view view)
+
+(def course-h 3260)
+(def finish-y 3140)
+(def gate-count 18)
+(def gate-keys [:g0 :g1 :g2 :g3 :g4 :g5 :g6 :g7 :g8 :g9 :g10 :g11 :g12 :g13 :g14 :g15 :g16 :g17])
+(def hazard-keys [:h0 :h1 :h2 :h3 :h4 :h5 :h6 :h7 :h8 :h9 :h10 :h11 :h12 :h13])
+(def pickup-keys [:p0 :p1 :p2 :p3 :p4 :p5 :p6 :p7])
+
+(def initial
+  {:t 0
+   :music false
+   :phase :play
+   :x 240
+   :y 112
+   :vx 0
+   :speed 146
+   :stamina 100
+   :health 3
+   :score 0
+   :combo 0
+   :gate 0
+   :time 78
+   :air 0
+   :invuln 0
+   :flash 0
+   :shake 0
+   :message "Carve gates, grab wax, jump hazards"
+   :message-time 3.2
+   :pickups {:p0 true :p1 true :p2 true :p3 true :p4 true :p5 true :p6 true :p7 true}})
+
+(defn frame [n]
+  (case (mod n 8)
+    0 :f0
+    1 :f1
+    2 :f2
+    3 :f3
+    4 :f4
+    5 :f5
+    6 :f6
+    else :f7))
+
+(defn back? []
+  (and (pointer-released?)
+       (point-in-rect? (pointer-x) (pointer-y) (rect-box 12 12 72 30))))
+
+(defn restart? []
+  (or (pressed? :tap) (pointer-pressed?)))
+
+(defn jump? []
+  (or (pressed? :tap) (pointer-pressed?)))
+
+(defn arm-music [state]
+  (if (:music state)
+    state
+    (do
+      (music/play :theme :volume 0.085)
+      (assoc state :music true))))
+
+(defn gate-y [g]
+  (case g
+    :g0 230
+    :g1 390
+    :g2 555
+    :g3 725
+    :g4 895
+    :g5 1070
+    :g6 1235
+    :g7 1410
+    :g8 1580
+    :g9 1755
+    :g10 1920
+    :g11 2095
+    :g12 2265
+    :g13 2440
+    :g14 2605
+    :g15 2770
+    :g16 2930
+    else 3075))
+
+(defn gate-center [g]
+  (case g
+    :g0 238
+    :g1 310
+    :g2 184
+    :g3 274
+    :g4 356
+    :g5 146
+    :g6 226
+    :g7 326
+    :g8 174
+    :g9 268
+    :g10 352
+    :g11 196
+    :g12 284
+    :g13 142
+    :g14 232
+    :g15 334
+    :g16 176
+    else 286))
+
+(defn gate-gap [g]
+  (case g
+    :g0 136
+    :g1 130
+    :g2 128
+    :g3 122
+    :g4 118
+    :g5 116
+    :g6 112
+    :g7 108
+    :g8 108
+    :g9 104
+    :g10 102
+    :g11 100
+    :g12 98
+    :g13 96
+    :g14 94
+    :g15 92
+    :g16 90
+    else 88))
+
+(defn current-gate [state]
+  (nth gate-keys (:gate state) :done))
+
+(defn gate-clear? [state g]
+  (let [half (* 0.5 (gate-gap g))]
+    (and (> (:y state) (+ (gate-y g) 26))
+         (> (:x state) (- (gate-center g) half))
+         (< (:x state) (+ (gate-center g) half)))))
+
+(defn gate-missed? [state g]
+  (> (:y state) (+ (gate-y g) 34)))
+
+(defn gate-points [state]
+  (+ 120 (* (:combo state) 35) (if (> (:speed state) 210) 40 0)))
+
+(defn pass-gate [state g]
+  (let [points (gate-points state)
+        combo (+ (:combo state) 1)]
+    (do
+      (sound/play :blip :volume 0.68 :pitch (+ 0.9 (* combo 0.03)))
+      (assoc state
+        :score (+ (:score state) points)
+        :combo combo
+        :gate (+ (:gate state) 1)
+        :flash 0.25
+        :message (str "Gate +" points "  Combo x" combo)
+        :message-time 1.25))))
+
+(defn miss-gate [state g]
+  (let [health (- (:health state) 1)]
+    (do
+      (sound/play :pop :volume 0.58 :pitch 0.82)
+      (if (<= health 0)
+        (assoc state :phase :over :health 0 :combo 0 :flash 1 :shake 0.45 :message "Patrol stopped the run" :message-time 5)
+        (assoc state :health health :combo 0 :gate (+ (:gate state) 1) :invuln 0.9 :flash 0.75 :shake 0.24 :message "Missed gate" :message-time 1.5)))))
+
+(defn gate-step [state]
+  (let [g (current-gate state)]
+    (cond
+      (= g :done) state
+      (gate-clear? state g) (pass-gate state g)
+      (gate-missed? state g) (miss-gate state g)
+      else state)))
+
+(defn hazard-x [h]
+  (case h
+    :h0 104
+    :h1 354
+    :h2 214
+    :h3 392
+    :h4 142
+    :h5 286
+    :h6 386
+    :h7 104
+    :h8 246
+    :h9 342
+    :h10 166
+    :h11 404
+    :h12 232
+    else 92))
+
+(defn hazard-y [h]
+  (case h
+    :h0 470
+    :h1 640
+    :h2 820
+    :h3 1018
+    :h4 1162
+    :h5 1365
+    :h6 1538
+    :h7 1715
+    :h8 1884
+    :h9 2078
+    :h10 2335
+    :h11 2528
+    :h12 2750
+    else 2968))
+
+(defn hazard-frame [h]
+  (case h
+    :h1 :f4
+    :h3 :f4
+    :h5 :f6
+    :h6 :f4
+    :h8 :f6
+    :h9 :f4
+    :h11 :f4
+    else :f6))
+
+(defn hazard-box [h]
+  (rect-box (- (hazard-x h) 17) (- (hazard-y h) 13) 34 32))
+
+(defn player-box [state]
+  (rect-box (- (:x state) 15) (- (:y state) 22) 30 40))
+
+(defn hazard-touch? [state h]
+  (and (<= (:air state) 0)
+       (overlap? (player-box state) (hazard-box h))))
+
+(defn damage [state]
+  (let [health (- (:health state) 1)]
+    (do
+      (sound/play :pop :volume 0.76 :pitch 0.72)
+      (if (<= health 0)
+        (assoc state :phase :over :health 0 :combo 0 :speed 90 :flash 1 :shake 0.5 :message "Wipeout" :message-time 5)
+        (assoc state :health health :combo 0 :speed 96 :vx (* -0.35 (:vx state)) :invuln 1.1 :flash 1 :shake 0.34 :message "Wipeout! Recover" :message-time 1.6)))))
+
+(defn hazard-step [state]
+  (let [hit (find hazard-keys (fn [h] (hazard-touch? state h)))]
+    (if (and hit (<= (:invuln state) 0))
+      (damage state)
+      state)))
+
+(defn pickup-x [p]
+  (case p
+    :p0 320
+    :p1 156
+    :p2 258
+    :p3 374
+    :p4 124
+    :p5 300
+    :p6 198
+    else 348))
+
+(defn pickup-y [p]
+  (case p
+    :p0 520
+    :p1 950
+    :p2 1305
+    :p3 1640
+    :p4 1990
+    :p5 2224
+    :p6 2688
+    else 3020))
+
+(defn pickup-kind [p]
+  (case p
+    :p1 :medal
+    :p4 :medal
+    :p6 :cocoa
+    else :wax))
+
+(defn pickup-active? [state p]
+  (get-in state [:pickups p] false))
+
+(defn pickup-box [p]
+  (rect-box (- (pickup-x p) 14) (- (pickup-y p) 14) 28 28))
+
+(defn pickup-touch? [state p]
+  (and (pickup-active? state p)
+       (overlap? (player-box state) (pickup-box p))))
+
+(defn collect-pickup [state p]
+  (let [kind (pickup-kind p)
+        base (assoc-in state [:pickups p] false)]
+    (case kind
+      :medal
+        (do
+          (sound/play :blip :volume 0.76 :pitch 1.22)
+          (assoc base :score (+ (:score base) 250) :combo (+ (:combo base) 2) :flash 0.4 :message "Medal line +250" :message-time 1.4))
+      :cocoa
+        (do
+          (sound/play :blip :volume 0.72 :pitch 0.84)
+          (assoc base :health (min 3 (+ (:health base) 1)) :stamina 100 :flash 0.32 :message "Cocoa refill" :message-time 1.4))
+      else
+        (do
+          (sound/play :blip :volume 0.62 :pitch 1.06)
+          (assoc base :score (+ (:score base) 80) :stamina 100 :speed (min 260 (+ (:speed base) 24)) :message "Fresh wax" :message-time 1.1)))))
+
+(defn pickup-step [state]
+  (let [hit (find pickup-keys (fn [p] (pickup-touch? state p)))]
+    (if hit
+      (collect-pickup state hit)
+      state)))
+
+(defn start-jump [state]
+  (if (and (jump?) (<= (:air state) 0) (> (:stamina state) 18) (= (:phase state) :play))
+    (do
+      (sound/play :blip :volume 0.5 :pitch 1.42)
+      (assoc state :air 0.52 :stamina (- (:stamina state) 18) :message "Jump!" :message-time 0.75))
+    state))
+
+(defn land-step [old state]
+  (if (and (> (:air old) 0) (<= (:air state) 0))
+    (do
+      (sound/play :pop :volume 0.32 :pitch 1.35)
+      (assoc state :score (+ (:score state) 60 (* (:combo state) 10)) :flash 0.22 :message "Clean landing" :message-time 0.9))
+    state))
+
+(defn advance-skier [dt state]
+  (let [steer (axis :move-x)
+        yaxis (axis :move-y)
+        tucked (and (> yaxis 0.25) (> (:stamina state) 0))
+        braking (< yaxis -0.25)
+        drag (max 0 (- 1 (* dt (if (= steer 0) 2.4 1.0))))
+        vx (clamp (+ (* (:vx state) drag) (* steer dt 560)) -185 185)
+        speed-delta (cond
+                      tucked 88
+                      braking -126
+                      else (+ 16 (* (:combo state) 0.65)))
+        max-speed (if tucked 264 224)
+        speed (clamp (+ (:speed state) (* dt speed-delta)) 84 max-speed)
+        stamina (clamp (+ (:stamina state) (* dt (if tucked -24 (if braking 20 12)))) 0 100)
+        air (max 0 (- (:air state) dt))
+        drift (* 14 (sin (* (:t state) 1.1)))
+        x (clamp (+ (:x state) (* vx dt) (* drift dt)) 42 438)
+        y (+ (:y state) (* speed dt))]
+    (assoc state :x x :y y :vx vx :speed speed :stamina stamina :air air)))
+
+(defn finish-step [state]
+  (cond
+    (<= (:time state) 0)
+      (do
+        (sound/play :pop :volume 0.76 :pitch 0.7)
+        (assoc state :phase :over :time 0 :combo 0 :flash 1 :shake 0.4 :message "Time expired" :message-time 5))
+    (>= (:y state) finish-y)
+      (let [bonus (+ (floor (* (:time state) 22)) (* (:health state) 300) (* (:combo state) 45))]
+        (do
+          (sound/play :blip :volume 0.92 :pitch 0.82)
+          (assoc state :phase :win :score (+ (:score state) bonus) :flash 1 :message (str "Finish bonus +" bonus) :message-time 8)))
+    else state))
+
+(defn play-step [dt state]
+  (let [timed (assoc state
+                :t (+ (:t state) dt)
+                :time (max 0 (- (:time state) dt))
+                :flash (max 0 (- (:flash state) (* dt 2.8)))
+                :invuln (max 0 (- (:invuln state) dt))
+                :shake (max 0 (- (:shake state) (* dt 1.7)))
+                :message-time (max 0 (- (:message-time state) dt)))
+        jumped (start-jump timed)
+        moved (advance-skier dt jumped)
+        landed (land-step jumped moved)
+        gated (gate-step landed)
+        picked (pickup-step gated)
+        damaged (hazard-step picked)]
+    (finish-step damaged)))
+
+(defn update [dt state]
+  (cond
+    (back?) (do (sound/play :pop :volume 0.55) (navigation/pop) state)
+    (and (not= (:phase state) :play) (restart?)) (assoc initial :music (:music state))
+    (= (:phase state) :play) (play-step dt (arm-music state))
+    else (assoc state :t (+ (:t state) dt) :flash (max 0 (- (:flash state) (* dt 1.4))))))
+
+(defn camera-y [state]
+  (clamp (- (:y state) 232) 0 (- course-h 360)))
+
+(defn back-button []
+  (group
+    (rect :x 12 :y 12 :w 72 :h 30 :color "#174360")
+    (text :font :main :value "Back" :x 28 :y 20 :size 13 :color "#f8fafc")))
+
+(defn gate-color [g]
+  (if (= (mod (gate-y g) 2) 0) "#ef4444" "#2563eb"))
+
+(defn draw-gate [state g]
+  (let [y (gate-y g)
+        center (gate-center g)
+        half (* 0.5 (gate-gap g))
+        left (- center half)
+        right (+ center half)
+        current (= g (current-gate state))
+        color (if current "#facc15" (gate-color g))]
+    (group
+      (line :x1 left :y1 y :x2 right :y2 y :width (if current 3 2) :color (if current "#fde68a" "#bfdbfe"))
+      (rect :x (- left 3) :y (- y 26) :w 6 :h 52 :color "#334155")
+      (rect :x (- right 3) :y (- y 26) :w 6 :h 52 :color "#334155")
+      (rect :x (- left 20) :y (- y 28) :w 20 :h 15 :color color)
+      (rect :x right :y (+ y 13) :w 20 :h 15 :color color)
+      (if current
+        (circle :x center :y y :r (+ 9 (* 3 (sin (* (:t state) 6)))) :color "#fef3c7")
+        empty))))
+
+(defn draw-hazard [h]
+  (let [x (hazard-x h)
+        y (hazard-y h)
+        tree (= (hazard-frame h) :f4)]
+    (group
+      (circle :x x :y (+ y 18) :r 15 :color "#cbd5e1")
+      (sprite :image :kit :frame (hazard-frame h) :x (- x 24) :y (- y 24) :scale (if tree 1.08 0.95)))))
+
+(defn draw-pickup [state p]
+  (if (pickup-active? state p)
+    (let [kind (pickup-kind p)
+          x (pickup-x p)
+          y (+ (pickup-y p) (* 4 (sin (+ (* (:t state) 5) (pickup-y p)))))
+          fr (case kind :medal :f5 :cocoa :f6 else :f7)]
+      (group
+        (circle :x x :y y :r 15 :color (case kind :medal "#facc15" :cocoa "#b45309" else "#67e8f9"))
+        (sprite :image :kit :frame fr :x (- x 22) :y (- y 22) :scale 0.9)))
+    empty))
+
+(defn side-tree [i state]
+  (let [left (= (mod i 2) 0)
+        x (if left (+ 10 (mod (* i 23) 72)) (- 470 (mod (* i 29) 78)))
+        y (+ 126 (* i 142))]
+    (group
+      (circle :x x :y (+ y 18) :r 16 :color "#dceaf2")
+      (sprite :image :kit :frame :f4 :x (- x 25) :y (- y 18) :scale 1.05))))
+
+(defn snow-spark [i state]
+  (let [x (+ 68 (mod (+ (* i 53) (floor (* (:t state) -26))) 344))
+        y (+ 86 (mod (+ (* i 97) (floor (* (:y state) 0.85))) (- course-h 120)))]
+    (circle :x x :y y :r (+ 1 (mod i 3)) :color "#dff8ff")))
+
+(defn course-stripe [i]
+  (let [x (+ 106 (* i 58))]
+    (line :x1 x :y1 0 :x2 (- x 28) :y2 course-h :width 2 :color "#e1f5fb")))
+
+(defn draw-course [state]
+  (group
+    (rect :x 0 :y 0 :w 480 :h course-h :color "#c6ebf7")
+    (rect :x 82 :y 0 :w 316 :h course-h :color "#eefbff")
+    (for [i (range 6)] (course-stripe i))
+    (line :x1 82 :y1 0 :x2 64 :y2 course-h :width 8 :color "#8fd3e8")
+    (line :x1 398 :y1 0 :x2 420 :y2 course-h :width 8 :color "#8fd3e8")
+    (line :x1 104 :y1 0 :x2 92 :y2 course-h :width 2 :color "#bde8f6")
+    (line :x1 376 :y1 0 :x2 388 :y2 course-h :width 2 :color "#bde8f6")
+    (for [i (range 23)] (side-tree i state))
+    (for [i (range 46)] (snow-spark i state))
+    (for [i (range 30)]
+      (sprite :image :sheet :src (if (= (mod i 2) 0) :snow :marker)
+              :x (+ 18 (* (mod i 5) 42)) :y (+ 84 (* (floor (/ i 5)) 360)) :scale 1.1))
+    (for [g gate-keys] (draw-gate state g))
+    (for [h hazard-keys] (draw-hazard h))
+    (for [p pickup-keys] (draw-pickup state p))
+    (rect :x 70 :y finish-y :w 340 :h 18 :color "#111827")
+    (rect :x 76 :y (+ finish-y 4) :w 328 :h 10 :color "#f8fafc")
+    (for [i (range 12)]
+      (rect :x (+ 76 (* i 27)) :y (+ finish-y 4) :w 14 :h 10 :color (if (= (mod i 2) 0) "#111827" "#f8fafc")))
+    (text :font :main :value "FINISH" :x 204 :y (- finish-y 24) :size 16 :color "#0f172a")))
+
+(defn player-frame [state]
+  (cond
+    (> (:air state) 0) :f3
+    (> (:invuln state) 0) :f3
+    (> (abs (:vx state)) 95) :f3
+    (> (:speed state) 220) :f3
+    else :f3))
+
+(defn draw-player [state]
+  (let [blink (and (> (:invuln state) 0) (= (mod (floor (* (:t state) 18)) 2) 0))
+        lean (clamp (* (:vx state) 0.07) -14 14)
+        lift (* 34 (/ (:air state) 0.52))
+        squash (if (> (:air state) 0) 1.08 (+ 1 (* (:flash state) 0.07)))]
+    (if blink
+      empty
+      (group
+        (circle :x (:x state) :y (+ (:y state) 23) :r (if (> (:air state) 0) 13 18) :color "#b7d7e5")
+        (transform :x (:x state) :y (- (:y state) lift) :rotation lean :scale squash
+          (sprite :image :kit :frame (player-frame state) :x -28 :y -30 :scale 1.18 :flip-x (< (:vx state) -8)))))))
+
+(defn heart [i state]
+  (sprite :image :kit :frame (if (> (:health state) i) :f3 :f7) :x (+ 382 (* i 26)) :y 14 :scale 0.48))
+
+(defn stamina-bar [state]
+  (group
+    (rect :x 214 :y 46 :w 108 :h 7 :color "#164e63")
+    (rect :x 214 :y 46 :w (* 1.08 (:stamina state)) :h 7 :color (if (> (:stamina state) 28) "#22d3ee" "#fb7185"))))
+
+(defn progress-node [state]
+  (let [w (* 134 (/ (:y state) finish-y))]
+    (group
+      (rect :x 214 :y 26 :w 134 :h 5 :color "#334155")
+      (rect :x 214 :y 26 :w (clamp w 0 134) :h 5 :color "#facc15"))))
+
+(defn hud-message [state]
+  (if (> (:message-time state) 0)
+    (text :font :main :value (:message state) :x 100 :y 56 :size 11 :color "#dff8ff")
+    empty))
+
+(defn result-panel [state]
+  (cond
+    (= (:phase state) :win)
+      (group
+        (rect :x 70 :y 84 :w 340 :h 186 :color "#0f172a")
+        (rect :x 84 :y 98 :w 312 :h 158 :color "#174360")
+        (text :font :main :value "Alpine Finish" :x 128 :y 116 :size 29 :color "#f8fafc")
+        (text :font :main :value (str "Score " (:score state)) :x 178 :y 158 :size 19 :color "#fef3c7")
+        (text :font :main :value (str "Gates " (:gate state) "/" gate-count "   Combo x" (:combo state)) :x 138 :y 190 :size 15 :color "#bfdbfe")
+        (text :font :main :value "Tap to race again" :x 168 :y 226 :size 16 :color "#ecfeff"))
+    (= (:phase state) :over)
+      (group
+        (rect :x 70 :y 92 :w 340 :h 170 :color "#111827")
+        (rect :x 84 :y 106 :w 312 :h 142 :color "#471b2a")
+        (text :font :main :value "Run Ended" :x 164 :y 126 :size 30 :color "#fee2e2")
+        (text :font :main :value (str "Score " (:score state) "   Gates " (:gate state) "/" gate-count) :x 136 :y 170 :size 16 :color "#fef3c7")
+        (text :font :main :value "Tap to restart" :x 184 :y 214 :size 17 :color "#f8fafc"))
+    else empty))
+
+(defn view [state]
+  (let [jitter (* (:shake state) 12 (sin (* (:t state) 52)))]
+    (group
+      (clear (if (> (:flash state) 0.72) "#d8eff8" "#c7e8f7"))
+      (camera :x 0 :y (camera-y state) :zoom 1
+        (transform :x jitter :y 0
+          (draw-course state)
+          (draw-player state)))
+      (rect :x 0 :y 0 :w 480 :h 72 :color "#12344d")
+      (back-button)
+      (text :font :main :value "Alpine Rush" :x 98 :y 15 :size 24 :color "#f8fafc")
+      (text :font :main :value (str "Score " (:score state) "   x" (:combo state)) :x 98 :y 39 :size 13 :color "#fef3c7")
+      (text :font :main :value (str (ceil (:time state)) "s") :x 334 :y 42 :size 13 :color "#dff8ff")
+      (progress-node state)
+      (stamina-bar state)
+      (heart 0 state)
+      (heart 1 state)
+      (heart 2 state)
+      (hud-message state)
+      (rect :x 80 :y 330 :w 320 :h 20 :color "#e0f7ff")
+      (text :font :main :value "A/D steer   Down tuck   Up brake   Space/tap jump" :x 90 :y 338 :size 12 :color "#0f172a")
+      (result-panel state))))

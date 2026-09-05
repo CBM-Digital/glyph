@@ -3,7 +3,7 @@
   :size [480 360]
   :assets {:food "../assets/kenney/strips/food-kit.png"
            :items "../assets/kenney/strips/items-kit.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial

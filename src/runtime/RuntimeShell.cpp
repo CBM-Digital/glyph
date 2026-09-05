@@ -138,6 +138,11 @@ void RuntimeShell::loadGameBundle(std::shared_ptr<assets::IAssetSource> assetSou
   paused_ = false;
 }
 
+void RuntimeShell::setProfile(std::shared_ptr<profile::ProfileStore> profile) {
+  profile_ = std::move(profile);
+  for (auto& scene : scenes_) scene->host.setProfile(profile_.get());
+}
+
 void RuntimeShell::beginFrame() { host().input().beginFrame(); }
 
 void RuntimeShell::tick(double deltaSeconds) {
@@ -194,6 +199,7 @@ bool RuntimeShell::processNavigation() {
         return false;
       }
 
+      current.host.input().clear();
       scenes_.push_back(loadSceneFile(*target));
       if (paused_) {
         scenes_.back()->host.setPaused(true);
@@ -205,6 +211,7 @@ bool RuntimeShell::processNavigation() {
     if (command.type == game::NavigationCommandType::Pop) {
       if (scenes_.size() > 1) {
         scenes_.pop_back();
+        scenes_.back()->host.input().clear();
         if (paused_) {
           scenes_.back()->host.setPaused(true);
           scenes_.back()->host.audio().pauseAll();
@@ -307,6 +314,7 @@ std::unique_ptr<RuntimeShell::Scene> RuntimeShell::loadSceneFile(const std::stri
   if (!source) {
     throw script::RuntimeError("unable to open " + scenePath);
   }
+  scene->host.setProfile(profile_.get());
   scene->host.loadSource(*source, scenePath);
   return scene;
 }

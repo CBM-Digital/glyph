@@ -7,7 +7,7 @@
                           :frames {:planet [0 0]
                                    :moon [1 0]
                                    :station [2 0]}}}
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
            :theme "../assets/theme.wav"}

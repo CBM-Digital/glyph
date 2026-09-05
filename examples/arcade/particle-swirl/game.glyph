@@ -3,7 +3,7 @@
   :size [480 360]
   :assets {:kit "../assets/kenney/strips/particle-kit.png"
            :sheet "../assets/kenney/strips/particle-kit.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial

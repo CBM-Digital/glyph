@@ -6,10 +6,39 @@
 #include "script/Parser.h"
 
 #include <sstream>
+#include <cstdlib>
 
 namespace glyph::script {
 
-VM::VM() : globals_(std::make_shared<Env>()) { registerCoreNatives(*this); }
+VM::VM() : globals_(std::make_shared<Env>()) {
+  const char* seed = std::getenv("GLYPH_RANDOM_SEED");
+  seedRandom(seed ? static_cast<std::uint32_t>(std::strtoul(seed, nullptr, 10)) : std::random_device{}());
+  registerCoreNatives(*this);
+}
+// Top-level functions capture globals, whose bindings own those functions.
+// Break that ownership cycle when unloading a cabinet or replacing its VM.
+VM::~VM() { if (globals_) globals_->bindings.clear(); }
+VM& VM::operator=(VM&& other) noexcept {
+  if (this == &other) return *this;
+  if (globals_) globals_->bindings.clear();
+  profile_=other.profile_;
+  random_=std::move(other.random_);
+  interner_=std::move(other.interner_);
+  globals_=std::move(other.globals_);
+  nativeFallbacks_=std::move(other.nativeFallbacks_);
+  input_=other.input_; audio_=other.audio_; navigation_=other.navigation_;
+  return *this;
+}
+
+void VM::seedRandom(std::uint32_t seed) { random_.seed(seed); }
+double VM::randomUnit() { return static_cast<double>(random_()) / 4294967296.0; }
+std::uint32_t VM::randomIndex(std::uint32_t bound) {
+  if (!bound) throw RuntimeError("random bound must be positive");
+  const std::uint32_t threshold = static_cast<std::uint32_t>(-bound) % bound;
+  std::uint32_t value;
+  do { value = random_(); } while (value < threshold);
+  return value % bound;
+}
 
 Value VM::evalSource(std::string_view source, std::string file) {
   Lexer lexer(source);

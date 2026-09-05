@@ -8,7 +8,7 @@
                                   :weed [1 0]
                                   :shell [2 0]
                                   :rock [3 0]}}}
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
            :theme "../assets/theme.wav"}
@@ -302,6 +302,13 @@
         y (+ 178 (mod (+ (* i 31) (* (:t state) -16)) 154))]
     (circle :x x :y y :r (+ 2 (mod i 3)) :color "#bff4ff")))
 
+(defn cloud [x y s]
+  (group
+    (circle :x x :y y :r (* 10 s) :color "#e0f7ff")
+    (circle :x (+ x (* 13 s)) :y (- y (* 4 s)) :r (* 13 s) :color "#f8fdff")
+    (circle :x (+ x (* 27 s)) :y y :r (* 9 s) :color "#e0f7ff")
+    (rect :x (- x (* 4 s)) :y y :w (* 36 s) :h (* 10 s) :color "#e0f7ff")))
+
 (defn swim-fish [i state]
   (let [x (mod (+ (* i 82) (* (:t state) (+ 12 (* i 2)))) 520)
         y (+ 206 (* 18 (sin (+ i (* (:t state) 0.8)))))]
@@ -366,15 +373,20 @@
         title-color (if (> (:flash state) 0) "#fef3c7" "#f8fafc")]
     (group
       (clear sky)
+      (cloud 92 50 1)
+      (cloud 262 34 0.78)
       (rect :x 0 :y 84 :w 480 :h 76 :color "#76b7ca")
       (circle :x 408 :y 42 :r 18 :color "#fff7b8")
       (for [i (range 8)] (reef-piece i))
-      (rect :x 0 :y 154 :w 480 :h 206 :color "#17617d")
+      (rect :x 0 :y 154 :w 480 :h 206 :color "#0e7490")
+      (rect :x 0 :y 214 :w 480 :h 146 :color "#155e75")
       (for [i (range 8)] (water-band i))
       (for [i (range 7)] (bubble i state))
       (for [i (range 4)] (swim-fish i state))
-      (rect :x 0 :y 128 :w 120 :h 20 :color "#8b6b3f")
-      (rect :x 0 :y 148 :w 132 :h 18 :color "#6d5432")
+      (rect :x 0 :y 128 :w 120 :h 20 :color "#9a6b37")
+      (rect :x 0 :y 148 :w 132 :h 18 :color "#6d4325")
+      (for [i (range 4)]
+        (rect :x (+ 4 (* i 30)) :y 130 :w 20 :h 34 :color (if (= (mod i 2) 0) "#7c4a22" "#5b351e")))
       (rect :x 72 :y 118 :w 12 :h 74 :color "#5b452c")
       (rect :x 24 :y 118 :w 12 :h 70 :color "#5b452c")
       (line :from [86 128] :angle -16 :length 72 :width 4 :color "#4b3827")
@@ -382,6 +394,7 @@
       (text :font :main :value "Fishing Cove" :x 104 :y 16 :size 24 :color title-color)
       (text :font :main :value (str "Coins " (:coins state) "  Catches " (:score state) "  Streak " (:streak state)) :x 104 :y 47 :size 13 :color "#083344")
       (text :font :main :value (str (weather-name (:weather state)) " current " (round (* (:current state) 10))) :x 104 :y 65 :size 12 :color "#164e63")
+      (rect :x 334 :y 72 :w 140 :h 220 :color "#082f49")
       (rect :x 338 :y 76 :w 132 :h 212 :color "#102f42")
       (text :font :main :value "Upgrades" :x 356 :y 77 :size 13 :color "#dff8ff")
       (shop-button 344 88 "Rod" (:rod state) (rod-cost state) (>= (:coins state) (rod-cost state)))

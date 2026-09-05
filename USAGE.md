@@ -1,6 +1,6 @@
-# Glyph Usage (Unix/macOS)
+# Glyph Usage
 
-Glyph currently targets Unix-like development environments, with macOS as the first-class desktop path. The desktop target uses pure SDL2 plus SDL_image, SDL_ttf, and SDL_mixer to open a window, process keyboard/mouse input, render PNG sprites and TTF text, load assets, and play sound.
+The desktop target uses C++20, SDL2, SDL_image, SDL_ttf, and SDL_mixer. The arcade slice has been validated locally on macOS. Windows, Linux, mobile, and Steam Deck still need native build and device validation; CMake configuration support alone is not release certification.
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ sudo dnf install cmake gcc-c++ pkgconf-pkg-config SDL2-devel SDL2_image-devel SD
 From the repository root:
 
 ```bash
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGLYPH_REQUIRE_MEDIA=ON
 cmake --build build
 ```
 
@@ -50,17 +50,23 @@ ctest --test-dir build --output-on-failure
 build/glyph --desktop examples/arcade/index.glyph
 ```
 
-Close the window or press `Escape` to quit.
+For the two-game playtest, run `build/glyph --demo`. The full index also exposes three selected prototypes and the prototype archive. Close the window to quit, or open the pause menu and choose Quit.
 
 Useful controls:
 
 ```text
-tap / confirm: Space, Enter, mouse click
+confirm: Space, Enter, controller A
+tap: confirm, mouse click, touch
 move-x: A/D or Left/Right
 move-y: W/S or Up/Down
-cancel: Escape
+controller axes: left stick / D-pad
+secondary: X / controller X
+cancel / back: Backspace / controller B
+pause: Escape / controller Start / Android Back
 pointer: mouse position and button
 ```
+
+Pause menu: Enter/A resumes, Backspace/B returns to the arcade, Q/Y quits. Losing focus pauses the game; resume deliberately after returning. Alpine supports two touch contacts: drag on the left to steer/tuck/brake and tap on the right to jump. Touch behavior has automated adapter coverage, but still requires device testing.
 
 For smoke tests, `--frames` closes the SDL window after a fixed number of rendered frames:
 
@@ -100,38 +106,35 @@ Then change a color or text string in the current scene and save. The desktop ru
 
 ## Arcade Scene Bundle
 
-The arcade bundle is a curated set of distinct, polished microgames:
+The expedition launcher contains two revised games and three development prototypes:
 
 ```bash
 build/glyph --desktop examples/arcade/index.glyph
 ```
 
-The index scene uses `navigation/push` to open eight games:
+The two-game demo includes:
 
 ```text
-Alpine Rush: carve ski gates, manage stamina, jump hazards
-Asteroid Belt: rotate, thrust, shoot, clear waves
-Tank Siege: drive, aim, survive arena waves
-Circuit Keep: build and upgrade towers to hold a route
-Crown Cavern: run, double-jump, collect gems, reach the crown
-Fishing Cove: cast, hook, manage line tension, buy upgrades
-Chef Chaos: gather ingredients, cook orders, manage dirty dishes
-Fussball Fever: move rods, charge spin shots, score goals
+Comet Courier: six contracts in two three-delivery routes, bonus rings, fragile cargo, one brake burst
+Alpine Rush: one 60–90 second course, twelve authored sections, clean gate chains and risky medal lines
 ```
 
-Each game has a top-left Back button that calls `navigation/pop` to return to the index scene. The bundle uses PNG sprite sheets from `examples/arcade/assets`, WAV sounds, and a TTF font rendered by SDL_ttf.
+Each game has a top-left Back button. Circuit Keep, Volt Grid, and Fishing Cove remain prototypes. See [scope and remaining work](docs/ARCADE_IMPLEMENTATION.md). Earlier Comet and Alpine scripts are preserved as `prototype.glyph` beside their replacements.
 
-macOS includes the TTF path used by the examples:
+The arcade bundles Noto Sans and its OFL license, selected original Kenney sprites and licenses, and synthesized WAV cues. It requires no system font installation. Regenerate assets with Python and Pillow, using the original Downloads packs:
 
-```text
-/System/Library/Fonts/Supplemental/Arial.ttf
+```bash
+python3 tools/import_arcade_assets.py --source "$HOME/Downloads"
+python3 tools/generate_demo.py
 ```
 
-On Linux, replace the `:main` asset value in the example `.glyph` files with an installed TTF such as:
+Records, mute settings, and Comet checkpoints use SDL's portable user-data directory (`SDL_GetPrefPath("Glyph", "Arcade")`), with atomic replacement and a recoverable `.bak` copy. To isolate a playtest profile:
 
-```text
-/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+```bash
+GLYPH_PROFILE_PATH=/tmp/glyph-playtest.glyphdata build/glyph --demo
 ```
+
+`cmake --install build --prefix build/demo-package` stages the two-game scripts, assets, and executable. This is a development staging directory: it does **not** yet bundle SDL's shared dependencies or provide a signed distributable.
 
 ## Other Examples
 
@@ -174,13 +177,7 @@ Asset/audio example:
 build/glyph --run examples/arcade/index.glyph --frames 2
 ```
 
-Expected output includes:
-
-```text
-assets: 12
-draw-commands: 47
-audio-commands: 1
-```
+The summary reports asset, draw-command, and queued-audio counts for the current scripts.
 
 ## Evaluate A Glyph Expression
 

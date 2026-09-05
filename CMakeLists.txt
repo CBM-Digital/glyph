@@ -25,6 +25,34 @@ if(PkgConfig_FOUND)
   pkg_check_modules(SDL2_MIXER QUIET SDL2_mixer)
 endif()
 
+option(GLYPH_REQUIRE_MEDIA "Fail configuration if a production media backend is missing" OFF)
+if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID)
+  # vcpkg and native Windows installations expose CMake targets, not pkg-config.
+  foreach(component SDL2 SDL2_image SDL2_ttf SDL2_mixer)
+    find_package(${component} CONFIG QUIET)
+  endforeach()
+  if(NOT SDL2_FOUND AND TARGET SDL2::SDL2)
+    set(SDL2_FOUND TRUE)
+    set(SDL2_LIBRARIES SDL2::SDL2)
+  endif()
+  foreach(pair "IMAGE|image" "TTF|ttf" "MIXER|mixer")
+    string(REPLACE "|" ";" parts "${pair}")
+    list(GET parts 0 upper)
+    list(GET parts 1 lower)
+    if(NOT SDL2_${upper}_FOUND AND TARGET SDL2_${lower}::SDL2_${lower})
+      set(SDL2_${upper}_FOUND TRUE)
+      set(SDL2_${upper}_LIBRARIES SDL2_${lower}::SDL2_${lower})
+    endif()
+  endforeach()
+  # SDL2's config sets SDL2_FOUND itself; ensure it also supplies the link target.
+  if(SDL2_FOUND AND NOT SDL2_LIBRARIES AND TARGET SDL2::SDL2)
+    set(SDL2_LIBRARIES SDL2::SDL2)
+  endif()
+  if(GLYPH_REQUIRE_MEDIA AND NOT (SDL2_FOUND AND SDL2_IMAGE_FOUND AND SDL2_TTF_FOUND AND SDL2_MIXER_FOUND))
+    message(FATAL_ERROR "Production builds require SDL2, SDL2_image, SDL2_ttf and SDL2_mixer.")
+  endif()
+endif()
+
 add_library(glyph_script
   src/core/StringInterner.cpp
   src/script/Lexer.cpp
@@ -37,6 +65,7 @@ add_library(glyph_script
   src/assets/AssetManager.cpp
   src/audio/AudioSystem.cpp
   src/input/InputSystem.cpp
+  src/profile/ProfileStore.cpp
   src/render/RenderCompiler.cpp
   src/render/Renderer.cpp
   src/game/GameHost.cpp
@@ -157,7 +186,19 @@ if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID)
   )
   target_link_libraries(glyph_runtime_tests PRIVATE glyph_script)
 
+  add_executable(glyph_arcade_tests tests/game/ArcadePlayTests.cpp)
+  target_link_libraries(glyph_arcade_tests PRIVATE glyph_script)
+  target_compile_definitions(glyph_arcade_tests PRIVATE GLYPH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  if(SDL2_FOUND)
+    add_executable(glyph_platform_tests tests/platform/SDLInputTests.cpp)
+    target_link_libraries(glyph_platform_tests PRIVATE glyph_script ${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${SDL2_TTF_LIBRARIES} ${SDL2_MIXER_LIBRARIES})
+    target_include_directories(glyph_platform_tests PRIVATE $<TARGET_PROPERTY:glyph,INCLUDE_DIRECTORIES>)
+    target_link_directories(glyph_platform_tests PRIVATE $<TARGET_PROPERTY:glyph,LINK_DIRECTORIES>)
+    target_compile_definitions(glyph_platform_tests PRIVATE $<TARGET_PROPERTY:glyph,COMPILE_DEFINITIONS> GLYPH_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME glyph_platform_tests COMMAND glyph_platform_tests)
+  endif()
   enable_testing()
+  add_test(NAME glyph_arcade_tests COMMAND glyph_arcade_tests)
   add_test(NAME glyph_script_tests COMMAND glyph_script_tests)
   add_test(NAME glyph_render_tests COMMAND glyph_render_tests)
   add_test(NAME glyph_game_tests COMMAND glyph_game_tests)
@@ -198,7 +239,7 @@ if(GLYPH_TARGET_ANDROID)
     )
     set(include_dir "")
     foreach(candidate IN LISTS include_candidates)
-      if(EXISTS "${candidate}/SDL.h" OR EXISTS "${candidate}/SDL_image.h")
+      if(EXISTS "${candidate}/SDL.h" OR EXISTS "${candidate}/SDL_image.h" OR EXISTS "${candidate}/SDL_ttf.h" OR EXISTS "${candidate}/SDL_mixer.h")
         set(include_dir "${candidate}")
         break()
       endif()
@@ -304,6 +345,30 @@ if(GLYPH_TARGET_ANDROID)
     endif()
   endif()
 
+  foreach(component TTF MIXER)
+    string(TOLOWER "${component}" lower)
+    set(GLYPH_ANDROID_SDL2_${component}_ROOT "" CACHE PATH "SDL2_${lower} Android source or prebuilt root")
+    set(root "${GLYPH_ANDROID_SDL2_${component}_ROOT}")
+    if(root AND EXISTS "${root}/CMakeLists.txt")
+      add_subdirectory("${root}" "${CMAKE_BINARY_DIR}/SDL2_${lower}" EXCLUDE_FROM_ALL)
+      if(TARGET SDL2_${lower}::SDL2_${lower})
+        set(GLYPH_ANDROID_SDL2_${component}_TARGET SDL2_${lower}::SDL2_${lower})
+      elseif(TARGET SDL2_${lower})
+        set(GLYPH_ANDROID_SDL2_${component}_TARGET SDL2_${lower})
+      endif()
+    endif()
+    if(NOT GLYPH_ANDROID_SDL2_${component}_TARGET)
+      glyph_import_android_sdl(GLYPH_ANDROID_SDL2_${component}_TARGET "${root}" SDL2_${lower})
+    endif()
+    set(GLYPH_ANDROID_HAS_SDL_${component} OFF)
+    if(GLYPH_ANDROID_SDL2_${component}_TARGET)
+      set(GLYPH_ANDROID_HAS_SDL_${component} ON)
+    endif()
+  endforeach()
+  if(GLYPH_REQUIRE_MEDIA AND NOT (GLYPH_ANDROID_HAS_SDL_IMAGE AND GLYPH_ANDROID_HAS_SDL_TTF AND GLYPH_ANDROID_HAS_SDL_MIXER))
+    message(FATAL_ERROR "Android production builds require PNG, TTF and mixer targets; configure all three dependency roots.")
+  endif()
+
   add_library(glyph SHARED
     src/platform/AndroidApp.cpp
     src/platform/SDLDesktopApp.cpp
@@ -315,11 +380,16 @@ if(GLYPH_TARGET_ANDROID)
   if(GLYPH_ANDROID_HAS_SDL_IMAGE)
     target_link_libraries(glyph PRIVATE ${GLYPH_ANDROID_SDL2_IMAGE_TARGET})
   endif()
+  foreach(component TTF MIXER)
+    if(GLYPH_ANDROID_SDL2_${component}_TARGET)
+      target_link_libraries(glyph PRIVATE ${GLYPH_ANDROID_SDL2_${component}_TARGET})
+    endif()
+  endforeach()
   target_compile_definitions(glyph PRIVATE
     GLYPH_HAS_SDL=1
     GLYPH_HAS_SDL_IMAGE=$<BOOL:${GLYPH_ANDROID_HAS_SDL_IMAGE}>
-    GLYPH_HAS_SDL_TTF=0
-    GLYPH_HAS_SDL_MIXER=0
+    GLYPH_HAS_SDL_TTF=$<BOOL:${GLYPH_ANDROID_HAS_SDL_TTF}>
+    GLYPH_HAS_SDL_MIXER=$<BOOL:${GLYPH_ANDROID_HAS_SDL_MIXER}>
   )
 endif()
 
@@ -385,6 +455,10 @@ if(GLYPH_TARGET_IOS)
 
   function(glyph_resolve_ios_framework out_var framework_name)
     set(search_roots)
+    string(TOUPPER "${framework_name}" upper_name)
+    if(GLYPH_IOS_${upper_name}_ROOT)
+      list(APPEND search_roots "${GLYPH_IOS_${upper_name}_ROOT}")
+    endif()
     if(framework_name STREQUAL "SDL2_image" AND GLYPH_IOS_SDL2_IMAGE_ROOT)
       list(APPEND search_roots
         "${GLYPH_IOS_SDL2_IMAGE_ROOT}"
@@ -452,6 +526,19 @@ if(GLYPH_TARGET_IOS)
       "with -DGLYPH_IOS_SDL2_IMAGE_ROOT=/path/to/SDL2_image.")
   endif()
 
+  foreach(component TTF MIXER)
+    string(TOLOWER "${component}" lower)
+    set(GLYPH_IOS_SDL2_${component}_ROOT "" CACHE PATH "SDL2_${lower} iOS framework root")
+    glyph_resolve_ios_framework(GLYPH_IOS_SDL2_${component}_FRAMEWORK SDL2_${lower})
+    set(GLYPH_IOS_HAS_SDL_${component} OFF)
+    if(GLYPH_IOS_SDL2_${component}_FRAMEWORK)
+      set(GLYPH_IOS_HAS_SDL_${component} ON)
+    endif()
+  endforeach()
+  if(GLYPH_REQUIRE_MEDIA AND NOT (GLYPH_IOS_HAS_SDL_TTF AND GLYPH_IOS_HAS_SDL_MIXER))
+    message(FATAL_ERROR "iOS production builds require SDL2_ttf and SDL2_mixer frameworks.")
+  endif()
+
   file(GLOB_RECURSE GLYPH_IOS_ARCADE_RESOURCE_CANDIDATES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/examples/arcade/*"
   )
@@ -497,11 +584,17 @@ if(GLYPH_TARGET_IOS)
     target_include_directories(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}/Headers")
     target_link_libraries(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}")
   endif()
+  foreach(component TTF MIXER)
+    if(GLYPH_IOS_SDL2_${component}_FRAMEWORK)
+      target_include_directories(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_${component}_FRAMEWORK}/Headers")
+      target_link_libraries(glyph_ios PRIVATE "${GLYPH_IOS_SDL2_${component}_FRAMEWORK}")
+    endif()
+  endforeach()
   target_compile_definitions(glyph_ios PRIVATE
     GLYPH_HAS_SDL=1
     GLYPH_HAS_SDL_IMAGE=1
-    GLYPH_HAS_SDL_TTF=0
-    GLYPH_HAS_SDL_MIXER=0
+    GLYPH_HAS_SDL_TTF=$<BOOL:${GLYPH_IOS_HAS_SDL_TTF}>
+    GLYPH_HAS_SDL_MIXER=$<BOOL:${GLYPH_IOS_HAS_SDL_MIXER}>
   )
   target_link_libraries(glyph_ios PRIVATE
     "-framework AudioToolbox"
@@ -528,7 +621,16 @@ if(GLYPH_TARGET_IOS)
   )
   if(GLYPH_IOS_SDL2_FRAMEWORK OR GLYPH_IOS_SDL2_IMAGE_FRAMEWORK)
     set_target_properties(glyph_ios PROPERTIES
-      XCODE_EMBED_FRAMEWORKS "${GLYPH_IOS_SDL2_FRAMEWORK};${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK}"
+      XCODE_EMBED_FRAMEWORKS "${GLYPH_IOS_SDL2_FRAMEWORK};${GLYPH_IOS_SDL2_IMAGE_FRAMEWORK};${GLYPH_IOS_SDL2_TTF_FRAMEWORK};${GLYPH_IOS_SDL2_MIXER_FRAMEWORK}"
     )
   endif()
+endif()
+
+if(NOT GLYPH_TARGET_IOS AND NOT GLYPH_TARGET_ANDROID AND SDL2_FOUND)
+  install(TARGETS glyph RUNTIME DESTINATION .)
+  install(FILES examples/arcade/demo.glyph DESTINATION arcade)
+  install(DIRECTORY examples/arcade/assets/original examples/arcade/assets/fonts examples/arcade/assets/audio DESTINATION arcade/assets)
+  install(DIRECTORY examples/arcade/comet-courier examples/arcade/ski-slalom DESTINATION arcade
+    PATTERN "prototype*" EXCLUDE
+    PATTERN ".DS_Store" EXCLUDE)
 endif()

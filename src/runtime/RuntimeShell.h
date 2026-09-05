@@ -2,6 +2,7 @@
 
 #include "assets/AssetSource.h"
 #include "core/Types.h"
+#include "profile/ProfileStore.h"
 #include "game/GameHost.h"
 #include "input/InputSystem.h"
 #include "render/DrawCommand.h"
@@ -25,6 +26,8 @@ public:
   void loadGameBundle(std::filesystem::path entryFile);
   void loadGameBundle(std::shared_ptr<assets::IAssetSource> assetSource, std::string entryPath);
 
+  void setProfile(std::shared_ptr<profile::ProfileStore> profile);
+  const profile::ProfileStore& profile() const { return *profile_; }
   void beginFrame();
   void tick(double deltaSeconds);
   std::vector<render::DrawCommand> renderView();
@@ -79,6 +82,7 @@ private:
   std::filesystem::path bundleRoot_;
   std::vector<std::unique_ptr<Scene>> scenes_;
   bool paused_ = false;
+  std::shared_ptr<profile::ProfileStore> profile_ = std::make_shared<profile::ProfileStore>();
 };
 
 } // namespace glyph::runtime

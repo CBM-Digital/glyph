@@ -9,7 +9,7 @@
                                    :leaf [2 0]
                                    :moon [3 0]}}}
            :particle "../assets/kenney/strips/particle-kit.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial

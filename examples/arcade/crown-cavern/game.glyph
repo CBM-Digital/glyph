@@ -7,7 +7,7 @@
                    :frames {:grass [0 0 16 16]
                             :stone [16 0 16 16]
                             :crate [32 0 16 16]}}
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
            :theme "../assets/theme.wav"}

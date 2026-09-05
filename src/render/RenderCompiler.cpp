@@ -180,6 +180,14 @@ DrawCommand RenderCompiler::compileSprite(const script::Value& node) const {
       fail("sprite :src must be [x y w h] or an atlas frame keyword");
     }
   }
+  if (assets_ && !command.hasSourceRect && command.frame != 0) {
+    if (const auto* asset = assets_->info(command.image); asset && asset->atlas) {
+      const auto* frame = assets_->frame(command.image, command.frame);
+      if (!frame) fail("sprite :frame references an unknown atlas frame");
+      command.sourceRect = *frame;
+      command.hasSourceRect = true;
+    }
+  }
   if (assets_ && !command.hasSourceRect && command.frame == 0) {
     if (const auto* asset = assets_->info(command.image); asset && asset->atlas && !asset->allowFullDraw) {
       fail("sprite references an atlas texture without :src or :frame");

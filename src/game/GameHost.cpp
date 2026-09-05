@@ -46,7 +46,9 @@ ReloadResult GameHost::reloadSourcePreservingState(std::string_view source, std:
     LoadedScript loaded = compileSource(source, std::move(file));
     script::Value preservedState = remapStateForReload(instance_.state, vm_.interner(), loaded.vm.interner());
 
+    const auto randomState = vm_.randomState();
     vm_ = std::move(loaded.vm);
+    vm_.restoreRandom(randomState);
     vm_.setInputSystem(&input_);
     vm_.setAudioSystem(&audio_);
     vm_.setNavigationSystem(&navigation_);
@@ -66,6 +68,7 @@ ReloadResult GameHost::reloadSourcePreservingState(std::string_view source, std:
 
 GameHost::LoadedScript GameHost::compileSource(std::string_view source, std::string file) {
   LoadedScript loaded;
+  loaded.vm.setProfile(profile_);
   loaded.vm.setInputSystem(&input_);
   loaded.vm.setAudioSystem(&audio_);
   loaded.vm.setNavigationSystem(&navigation_);
@@ -93,6 +96,7 @@ void GameHost::reset() {
 void GameHost::setPaused(bool paused) {
   instance_.paused = paused;
   if (paused) {
+    input_.clear();
     audio_.pauseAll();
   } else {
     audio_.resumeAll();
@@ -106,6 +110,7 @@ void GameHost::tick(double deltaSeconds) {
 
   instance_.accumulator += deltaSeconds;
   while (instance_.accumulator >= fixedDt) {
+    input_.beginTick();
     instance_.state = vm_.call(instance_.definition.updateFn,
                               {script::Value::numberValue(fixedDt), instance_.state});
     instance_.accumulator -= fixedDt;

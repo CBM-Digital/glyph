@@ -3,6 +3,7 @@
 #include "core/Types.h"
 
 #include <unordered_map>
+#include <deque>
 
 namespace glyph::input {
 
@@ -32,6 +33,9 @@ class InputSystem {
 public:
   void beginFrame();
   void endFrame();
+  // Render frames collect events. Simulation ticks consume each edge once.
+  void beginTick();
+  void clear();
 
   void setActionDown(StringId action, bool down);
   void setAxis(StringId action, float value);
@@ -56,6 +60,13 @@ private:
   ButtonState button(StringId action) const;
 
   std::unordered_map<StringId, ButtonState> buttons_;
+  std::unordered_map<StringId, bool> physicalButtons_;
+  std::unordered_map<StringId, std::deque<bool>> pendingButtons_;
+  struct PointerTransition { bool down; Vec2 position; };
+  std::deque<PointerTransition> pendingPointer_;
+  bool physicalPointerDown_ = false;
+  Vec2 physicalPointerPosition_{};
+  std::deque<SwipeDirection> pendingSwipes_;
   std::unordered_map<StringId, float> axes_;
   PointerState pointer_;
   SwipeDirection swipe_ = SwipeDirection::None;

@@ -29,6 +29,7 @@ public:
   void loadSource(std::string_view source, std::string file = "<game>");
   ReloadResult reloadSourcePreservingState(std::string_view source, std::string file = "<game>");
   void reset();
+  void setProfile(profile::ProfileStore* profile) { profile_ = profile; vm_.setProfile(profile); }
   void setPaused(bool paused);
 
   void tick(double deltaSeconds);
@@ -60,6 +61,7 @@ private:
                                     StringInterner& newInterner) const;
   [[noreturn]] void fail(std::string_view message) const;
 
+  profile::ProfileStore* profile_ = nullptr;
   script::VM vm_;
   input::InputSystem input_;
   assets::AssetManager assets_;

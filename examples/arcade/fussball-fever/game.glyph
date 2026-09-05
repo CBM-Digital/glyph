@@ -6,7 +6,7 @@
                    :frames {:ball [0 0 32 32]
                             :cone [34 0 32 32]
                             :whistle [68 0 32 32]}}
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"
            :theme "../assets/theme.wav"}

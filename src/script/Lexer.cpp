@@ -127,6 +127,9 @@ Token Lexer::readString(int line, int column) {
       case 'n':
         value.push_back('\n');
         break;
+      case 'r':
+        value.push_back('\r');
+        break;
       case 't':
         value.push_back('\t');
         break;

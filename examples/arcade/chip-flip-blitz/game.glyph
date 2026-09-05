@@ -8,7 +8,7 @@
                                    :blue [1 0]
                                    :white [2 0]
                                    :gold [3 0]}}}
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial

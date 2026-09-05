@@ -133,13 +133,14 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::string(argv[1]) == "--run") {
       return runGame(argc, argv);
     }
-    if (argc > 1 && std::string(argv[1]) == "--desktop") {
-      if (argc < 3) {
+    if (argc > 1 && (std::string(argv[1]) == "--desktop" || std::string(argv[1]) == "--demo")) {
+      const bool demo = std::string(argv[1]) == "--demo";
+      if (!demo && argc < 3) {
         std::cerr << "usage: glyph --desktop path/to/game.glyph [--frames N]\n";
         return 1;
       }
       int frames = -1;
-      for (int i = 3; i < argc; ++i) {
+      for (int i = demo ? 2 : 3; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--frames" && i + 1 < argc) {
           frames = std::max(0, std::atoi(argv[++i]));
@@ -149,7 +150,7 @@ int main(int argc, char** argv) {
         }
       }
 #if GLYPH_HAS_SDL
-      return glyph::platform::runSDLDesktop(argv[2], frames);
+      return glyph::platform::runSDLDesktop(demo ? glyph::platform::bundledDemoPath() : argv[2], frames);
 #else
       std::cerr << "desktop target was not built because SDL2 was not found\n";
       return 1;

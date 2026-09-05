@@ -5,6 +5,8 @@
 #include "script/Value.h"
 
 #include <memory>
+#include <random>
+#include <cstdint>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -21,11 +23,25 @@ namespace glyph::game {
 class NavigationSystem;
 }
 
+namespace glyph::profile { class ProfileStore; }
+
 namespace glyph::script {
 
 class VM {
 public:
   VM();
+  ~VM();
+  VM(VM&&) noexcept = default;
+  VM& operator=(VM&&) noexcept;
+  VM(const VM&) = delete;
+  VM& operator=(const VM&) = delete;
+  void setProfile(profile::ProfileStore* value) { profile_ = value; }
+  profile::ProfileStore* profile() const { return profile_; }
+  void seedRandom(std::uint32_t seed);
+  double randomUnit();
+  std::uint32_t randomIndex(std::uint32_t bound);
+  std::mt19937 randomState() const { return random_; }
+  void restoreRandom(const std::mt19937& state) { random_ = state; }
 
   Value evalSource(std::string_view source, std::string file = "<input>");
   Value evalProgram(const std::vector<AstPtr>& program);
@@ -64,6 +80,8 @@ private:
   bool isSymbolNamed(const AstPtr& node, std::string_view name) const;
   std::string symbolName(const AstPtr& node) const;
 
+  profile::ProfileStore* profile_ = nullptr;
+  std::mt19937 random_;
   StringInterner interner_;
   std::shared_ptr<Env> globals_;
   std::unordered_map<StringId, Value> nativeFallbacks_;

@@ -2,14 +2,8 @@
   :title "Potion Panic"
   :size [480 360]
   :assets {:items "../assets/kenney/strips/items-kit.png"
-           :sheet {:path "../assets/kenney/sheets/items-colored.png"
-                   :grid {:tile [40 40]
-                          :frames {:vial [0 0]
-                                   :leaf [1 0]
-                                   :crystal [2 0]
-                                   :bottle [0 1]}}}
            :particle "../assets/kenney/strips/particle-kit.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial
@@ -150,8 +144,20 @@
       (text :font :main :value (ing-name (recipe state i)) :x (- x 18) :y 116 :size 9 :color "#fdf4ff"))))
 
 (defn shelf-item [i]
-  (sprite :image :sheet :src (case (mod i 4) 0 :vial 1 :leaf 2 :crystal else :bottle)
-          :x (+ 326 (* (mod i 3) 34)) :y (+ 84 (* (floor (/ i 3)) 34)) :scale 0.76))
+  (let [x (+ 326 (* (mod i 3) 36))
+        y (+ 88 (* (floor (/ i 3)) 36))]
+    (group
+      (circle :x (+ x 16) :y (+ y 17) :r 18 :color "#12081a")
+      (circle :x (+ x 16) :y (+ y 17) :r 14 :color (ing-color i))
+      (sprite :image :items :frame (frame (+ i 1)) :x x :y y :scale 0.66))))
+
+(defn lab-shelf []
+  (group
+    (rect :x 314 :y 76 :w 132 :h 124 :color "#0f0717")
+    (rect :x 320 :y 82 :w 120 :h 112 :color "#24102e")
+    (rect :x 322 :y 118 :w 116 :h 5 :color "#5b2c6f")
+    (rect :x 322 :y 154 :w 116 :h 5 :color "#5b2c6f")
+    (for [i (range 9)] (shelf-item i))))
 
 (defn hazard [x y r]
   (group
@@ -184,7 +190,12 @@
 (defn view [state]
   (group
     (clear "#171021")
-    (for [i (range 9)] (shelf-item i))
+    (for [i (range 24)]
+      (circle :x (+ 12 (mod (+ (* i 67) (floor (* (:t state) -9))) 456))
+              :y (+ 72 (mod (* i 43) 258))
+              :r (if (= (mod i 5) 0) 2 1)
+              :color (if (= (mod i 3) 0) "#3b1f4b" "#24102e")))
+    (lab-shelf)
     (rect :x 0 :y 0 :w 480 :h 62 :color "#31213b")
     (back-button)
     (text :font :main :value "Potion Panic" :x 112 :y 17 :size 23 :color "#fdf4ff")
@@ -193,6 +204,7 @@
     (for [i (range 6)] (fever-pip i state))
     (rect :x 120 :y 76 :w 240 :h 64 :color "#27162f")
     (for [i (range (:len state))] (recipe-slot state i))
+    (circle :x 240 :y 304 :r 56 :color "#090510")
     (circle :x 240 :y 304 :r 46 :color (if (> (:fever state) 0) "#a16207" "#0f766e"))
     (if (> (:fever state) 0)
       (circle :x 240 :y 304 :r (+ 58 (* 8 (sin (* (:t state) 10)))) :color "#713f12")

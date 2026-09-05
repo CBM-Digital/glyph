@@ -8,7 +8,7 @@
                             :crate [66 0 32 32]
                             :post [99 0 32 32]}}
            :items "../assets/kenney/strips/items-kit.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial
@@ -145,13 +145,29 @@
     (rect :x (+ x 5) :y (+ y 5) :w (- w 10) :h (- h 10) :color color)
     (text :font :main :value label :x (+ x 8) :y (+ y 8) :size 11 :color "#111827")))
 
-(defn deck-tile [i]
-  (sprite :image :tiles :src (if (= (mod i 7) 0) :post (if (= (mod i 5) 0) :crate :deck))
-          :x (+ 78 (* (mod i 8) 32)) :y (+ 92 (* (floor (/ i 8)) 32)) :scale 1))
+(defn deck-plank [i]
+  (let [y (+ 88 (* i 30))]
+    (group
+      (rect :x 78 :y y :w 260 :h 26 :color (if (= (mod i 2) 0) "#f5deb3" "#ead19b"))
+      (rect :x 78 :y (+ y 24) :w 260 :h 2 :color "#7c4a22")
+      (for [n (range 5)]
+        (rect :x (+ 92 (* n 52) (if (= (mod i 2) 0) 0 22)) :y (+ y 4) :w 3 :h 18 :color "#c28b4a")))))
+
+(defn deck-prop [i]
+  (sprite :image :tiles :src (case (mod i 4) 0 :post 1 :crate 2 :water else :post)
+          :x (+ 88 (* (mod i 4) 64)) :y (+ 98 (* (floor (/ i 4)) 52)) :scale 0.74))
 
 (defn ship-board []
   (group
-    (for [i (range 48)] (deck-tile i))
+    (rect :x 0 :y 62 :w 480 :h 298 :color "#082f36")
+    (for [i (range 20)]
+      (line :from [(+ 4 (mod (* i 41) 460)) (+ 82 (mod (* i 29) 240))]
+            :angle 0 :length (+ 14 (mod (* i 7) 36)) :width 2 :color "#0e7490"))
+    (rect :x 68 :y 80 :w 282 :h 238 :color "#4b2e17")
+    (for [i (range 8)] (deck-plank i))
+    (for [i (range 8)] (deck-prop i))
+    (rect :x 64 :y 80 :w 8 :h 238 :color "#1f2937")
+    (rect :x 346 :y 80 :w 8 :h 238 :color "#1f2937")
     (for [i (range 10)]
       (sprite :image :tiles :src :water :x (+ 12 (* i 36)) :y 322 :scale 1.1))))
 
@@ -178,8 +194,9 @@
     (dock 182 306 120 38 "Red" "#fb7185")
     (rect :x 40 :y (- (cannon-y state) 8) :w 312 :h 16 :color "#7f1d1d")
     (circle :x 28 :y (cannon-y state) :r 13 :color "#111827")
+    (circle :x (+ 28 (* 10 (sin (* (:t state) 8)))) :y (cannon-y state) :r 5 :color "#facc15")
     (rect :x (- (:cx state) 18) :y (- (:cy state) 18) :w 36 :h 36 :color (cargo-color (:cargo state)))
     (sprite :image :items :frame (frame (+ (:cargo state) 2)) :x (- (:cx state) 23) :y (- (:cy state) 23) :scale 0.92)
     (transform :x (- (:px state) 24) :y (- (:py state) 24) :rotation (* 4 (sin (* (:t state) 8)))
-      (sprite :image :pirate :frame (frame 0) :x 0 :y 0 :scale 1))
+      (sprite :image :pirate :frame (frame (floor (* (:t state) 6))) :x 0 :y 0 :scale 1))
     (over-panel state)))

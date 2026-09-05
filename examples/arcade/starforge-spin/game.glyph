@@ -9,7 +9,7 @@
                                    :ring [1 0]
                                    :station [2 0]
                                    :moon [3 0]}}}
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial
@@ -48,7 +48,7 @@
   (if (or (held? :tap) (pointer-held?)) 82 56))
 
 (defn shield-color [state]
-  (mod (floor (/ (+ (:rot state) 45) 90)) 4))
+  (mod (+ 4 (mod (floor (/ (+ (- (:pa state) (:rot state)) 45) 90)) 4)) 4))
 
 (defn particle-x [state]
   (+ 240 (* (cos (deg->rad (:pa state))) (:pr state))))

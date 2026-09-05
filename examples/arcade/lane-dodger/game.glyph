@@ -2,7 +2,7 @@
   :title "Lane Dodger"
   :size [480 360]
   :assets {:car "../assets/lane-cars.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial

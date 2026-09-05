@@ -4,7 +4,7 @@
   :assets {:pirate "../assets/kenney/strips/pirate-kit.png"
            :town "../assets/kenney/strips/tiny-town-kit.png"
            :items "../assets/kenney/sheets/items-colored.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial
@@ -16,7 +16,7 @@
               :lane0 1 :lane1 0 :lane2 2
               :cargo0 1 :cargo1 0 :cargo2 2
               :lock0 false :lock1 false :lock2 false
-              :flash 0 :shake 0 :message "Tap lane locks before boats cross."})
+              :encounters [] :collision-cool 0 :flash 0 :shake 0 :message "Tap lane locks before boats cross."})
 
 (defn frame [n]
   (case (mod n 8)
@@ -66,7 +66,7 @@
     (if (>= hit 0)
       (do
         (sound/play :blip :volume 0.5 :pitch (+ 0.9 (* hit 0.08)))
-        (assoc state :switch hit :near (+ (:near state) 2) :message (str "Switch set to " (cargo-name hit))))
+        (assoc state :switch hit :message (str "Switch set to " (cargo-name hit))))
       state)))
 
 (defn boat-x [state i]
@@ -156,9 +156,12 @@
       (close-boats? state 1 2)))
 
 (defn near-pass-score [state]
-  (if (or (near-pass? state 0 1) (near-pass? state 0 2) (near-pass? state 1 2))
-    (assoc state :near (+ (:near state) 1) :score (+ (:score state) 1))
-    state))
+  (let [pairs [[0 1] [0 2] [1 2]]
+        new (filter (range 3) (fn [i]
+          (and (near-pass? state (nth (nth pairs i) 0) (nth (nth pairs i) 1))
+               (empty? (filter (:encounters state) (fn [id] (= id i)))))))
+        active (filter (range 3) (fn [i] (near-pass? state (nth (nth pairs i) 0) (nth (nth pairs i) 1))))]
+    (assoc state :encounters active :near (+ (:near state) (* (count new) 10)))))
 
 (defn update [dt state]
   (cond
@@ -168,11 +171,12 @@
     else
       (let [switched (set-switch state)
             base (assoc switched :t (+ (:t switched) dt)
+                                  :collision-cool (max 0 (- (:collision-cool switched) dt))
                                   :flash (max 0 (- (:flash switched) (* dt 2.3)))
                                   :shake (max 0 (- (:shake switched) (* dt 2.4))))
             moved (near-pass-score (advance-one dt (advance-one dt (advance-one dt base 0) 1) 2))]
-        (if (collision? moved)
-          (strike moved "Boats collided")
+        (if (and (<= (:collision-cool moved) 0) (collision? moved))
+          (assoc (strike moved "Boats collided") :x0 -100 :x1 -290 :x2 -480 :lock0 false :lock1 false :lock2 false :collision-cool 1 :encounters [])
           moved))))
 
 (defn back-button []
@@ -213,6 +217,14 @@
           :y (+ 82 (mod (* i 41) 250))
           :r 1 :color "#67e8f9"))
 
+(defn pier-mark [i]
+  (rect :x (+ 38 (* i 38)) :y 320 :w 24 :h 8 :color (if (= (mod i 2) 0) "#7c4a22" "#a16207")))
+
+(defn buoy [r]
+  (group
+    (circle :x 62 :y (route-y r) :r 10 :color "#0f172a")
+    (circle :x 62 :y (route-y r) :r 6 :color (route-color r))))
+
 (defn over-panel [state]
   (if (= (:phase state) :over)
     (group
@@ -226,6 +238,9 @@
   (let [jitter (* (:shake state) 10 (sin (* (:t state) 48)))]
     (group
       (clear "#083344")
+      (rect :x 0 :y 62 :w 480 :h 298 :color "#064e5f")
+      (rect :x 0 :y 306 :w 480 :h 54 :color "#3b2514")
+      (for [i (range 13)] (pier-mark i))
       (for [i (range 36)] (water-spark i state))
       (rect :x 0 :y 0 :w 480 :h 62 :color "#17343e")
       (back-button)
@@ -234,7 +249,9 @@
       (text :font :main :value (:message state) :x 108 :y 44 :size 11 :color "#a5f3fc")
       (for [i (range 3)] (strike-mark i state))
       (camera :x (- 0 jitter) :y 0 :zoom 1
-        (for [r (range 3)] (line :from [34 (route-y r)] :angle 0 :length 390 :width 6 :color "#155e75"))
+        (for [r (range 3)] (line :from [34 (route-y r)] :angle 0 :length 390 :width 12 :color "#0e7490"))
+        (for [r (range 3)] (line :from [34 (route-y r)] :angle 0 :length 390 :width 3 :color "#67e8f9"))
+        (for [r (range 3)] (buoy r))
         (for [r (range 3)] (dock r))
         (for [r (range 3)] (lock-button state r))
         (line :from [244 82] :angle 90 :length 220 :width 3 :color "#fef3c7")

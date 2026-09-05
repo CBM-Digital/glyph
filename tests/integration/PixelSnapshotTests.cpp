@@ -728,6 +728,7 @@ struct InputStep {
   std::map<std::string_view, float> axes;
   std::optional<std::pair<bool, glyph::Vec2>> pointer;
   bool snapshot = true;
+  std::string stateExpression;
 };
 
 struct Scenario {
@@ -752,6 +753,7 @@ void applyInput(glyph::game::GameHost& host, const InputStep& step) {
 }
 
 void advance(glyph::game::GameHost& host, const InputStep& step) {
+  if (!step.stateExpression.empty()) host.setState(host.vm().evalSource(step.stateExpression));
   int frames = static_cast<int>(std::round(step.seconds / glyph::game::GameHost::fixedDt));
   if (step.seconds > 0.0) {
     frames = std::max(1, frames);
@@ -794,8 +796,22 @@ std::vector<Scenario> arcadeScenarios() {
       "starforge-spin"};
 
   std::vector<Scenario> scenarios;
+  scenarios.push_back(Scenario{"demo", root / "demo.glyph", {InputStep{"initial"}}});
+  scenarios.push_back(Scenario{"comet_results", root / "comet-courier" / "game.glyph",
+    {InputStep{"win",0,{}, {}, {}, {},true,"(assoc (prepare initial) :phase :win :score 1850 :rings 3 :stage 3 :message \"Delivery +550\")"},
+     InputStep{"lost",0,{}, {}, {}, {},true,"(assoc (prepare initial) :phase :lost :hull 2 :message \"Docked too fast. Use your brake before arrival.\")"}}});
+  scenarios.push_back(Scenario{"alpine_results", root / "ski-slalom" / "game.glyph",
+    {InputStep{"win",0,{}, {}, {}, {},true,"(assoc initial :phase :win :score 12733 :passed 24 :best-combo 24 :gate 24 :y 12200)"},
+     InputStep{"lost",0,{}, {}, {}, {},true,"(assoc initial :phase :over :score 1250 :passed 6 :best-combo 4 :health 0 :message \"Hit a rock. Jump or take a wider line.\")"}}});
   scenarios.push_back(Scenario{"index", root / "index.glyph",
                                {InputStep{"initial"}, InputStep{"after_0_5s", 0.5}}});
+  scenarios.push_back(Scenario{"index_input", root / "index.glyph",
+                               {InputStep{"focus_alpine", glyph::game::GameHost::fixedDt, {"right"}}}});
+  scenarios.push_back(Scenario{"alpine_input", root / "ski-slalom" / "game.glyph",
+                               {InputStep{"briefing"},
+                                InputStep{"start", glyph::game::GameHost::fixedDt, {"confirm"}},
+                                InputStep{"carve", 2.0, {}, {"confirm"}, {{"move-x",0.35f}}},
+                                InputStep{"jump", .2, {"confirm"}, {}, {{"move-x",-0.4f},{"move-y",1.0f}}}}});
   for (const auto& slug : slugs) {
     scenarios.push_back(Scenario{slug, root / slug / "game.glyph",
                                  {InputStep{"initial"}, InputStep{"after_0_5s", 0.5}}});
@@ -842,12 +858,13 @@ std::vector<Scenario> arcadeScenarios() {
                                 InputStep{"settle", 0.35}}});
   scenarios.push_back(Scenario{"comet-courier_input", root / "comet-courier" / "game.glyph",
                                {InputStep{"initial"},
-                                InputStep{"aim_hold", 0.12, {"tap"}, {}, {},
-                                          std::pair<bool, glyph::Vec2>{true, glyph::Vec2{210.0f, 170.0f}}},
-                                InputStep{"launch", glyph::game::GameHost::fixedDt, {}, {"tap"},
-                                          {},
-                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{210.0f, 170.0f}}},
-                                InputStep{"flight", 0.35}}});
+                                InputStep{"ready", glyph::game::GameHost::fixedDt, {"confirm"}},
+                                InputStep{"aim_hold", .12, {}, {"confirm"}, {},
+                                          std::pair<bool, glyph::Vec2>{true, glyph::Vec2{24.0f, 290.0f}}},
+                                InputStep{"launch", glyph::game::GameHost::fixedDt, {}, {}, {},
+                                          std::pair<bool, glyph::Vec2>{false, glyph::Vec2{24.0f, 290.0f}}},
+                                InputStep{"flight", .65},
+                                InputStep{"brake", .1, {"confirm"}}}});
   scenarios.push_back(Scenario{"potion-panic_input", root / "potion-panic" / "game.glyph",
                                {InputStep{"initial"},
                                 InputStep{"tap_ingredient", glyph::game::GameHost::fixedDt, {}, {}, {},

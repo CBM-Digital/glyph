@@ -8,7 +8,7 @@
                           :stall [34 0 16 16]
                           :tree [51 0 16 16]}}
            :items "../assets/kenney/sheets/items-colored.png"
-           :main "/System/Library/Fonts/Supplemental/Arial.ttf"
+           :main "../assets/fonts/NotoSans-Regular.ttf"
            :blip "../assets/blip.wav"
            :pop "../assets/pop.wav"}
   :initial initial

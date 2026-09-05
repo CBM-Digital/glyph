@@ -26,6 +26,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <set>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -87,6 +88,17 @@ struct SDLState {
   SDL_AudioSpec audioSpec {};
   std::optional<SDL_FingerID> activeFinger;
   bool backgrounded = false;
+  bool userPaused = false;
+  float musicVolume = 0.2f;
+  SDL_GameController* controller = nullptr;
+  std::set<SDL_Keycode> keys;
+  std::set<Uint8> controllerButtons;
+  float controllerX = 0, controllerY = 0;
+  std::optional<SDL_FingerID> steeringFinger;
+  Vec2 steeringOrigin{};
+  float touchX = 0, touchY = 0;
+  bool touchJump = false;
+  bool mouseDown = false;
   bool nativeAudioPaused = false;
   std::unordered_map<StringId, TextureAsset> textures;
   std::unordered_map<StringId, FontAsset> fonts;
@@ -95,6 +107,7 @@ struct SDLState {
   bool mixerOpen = false;
   std::unordered_map<StringId, Mix_Chunk*> chunks;
   std::unordered_map<StringId, Mix_Music*> music;
+  std::map<std::pair<StringId,int>, Mix_Chunk*> pitched;
 #endif
 };
 
@@ -102,7 +115,7 @@ void applySceneWindow(SDLState& sdl, const game::GameHost& host) {
   const int width = static_cast<int>(host.definition().logicalSize.x);
   const int height = static_cast<int>(host.definition().logicalSize.y);
   SDL_SetWindowTitle(sdl.window, host.definition().title.c_str());
-  SDL_SetWindowSize(sdl.window, width, height);
+  // Keep the player's chosen window size across cabinet navigation.
   SDL_RenderSetLogicalSize(sdl.renderer, width, height);
 }
 
@@ -258,9 +271,6 @@ FontAsset loadFont(const std::filesystem::path& path, SDLState& sdl) {
   FontAsset font;
 #if GLYPH_HAS_SDL_TTF
   font.path = path.string();
-  if (!std::filesystem::exists(path)) {
-    std::cerr << "warning: font file missing " << path << "; using built-in bitmap text\n";
-  }
 #else
   (void)path;
 #endif
@@ -324,11 +334,20 @@ AudioAsset loadWav(const std::filesystem::path& path, const SDL_AudioSpec& targe
   return asset;
 }
 
-void queueAudio(SDL_AudioDeviceID device, const AudioAsset& asset, float volume) {
+void queueAudio(SDL_AudioDeviceID device, const AudioAsset& asset, float volume, float pitch = 1.0f) {
   if (device == 0 || asset.samples.empty()) {
     return;
   }
-  std::vector<float> scaled = asset.samples;
+  pitch = std::clamp(pitch, 0.25f, 4.0f);
+  const std::size_t frames = asset.samples.size()/2;
+  std::vector<float> scaled(static_cast<std::size_t>(frames / pitch)*2);
+  for (std::size_t i=0;i<scaled.size()/2;++i) {
+    const double position=i*pitch;
+    const auto a=std::min(static_cast<std::size_t>(position),frames-1);
+    const auto b=std::min(a+1,frames-1);
+    const float frac=static_cast<float>(position-a);
+    for(int c=0;c<2;++c) scaled[i*2+c]=asset.samples[a*2+c]*(1-frac)+asset.samples[b*2+c]*frac;
+  }
   for (float& sample : scaled) {
     sample = std::clamp(sample * volume, -1.0f, 1.0f);
   }
@@ -411,6 +430,10 @@ void clearLoadedAssets(SDLState& sdl) {
   }
   sdl.fonts.clear();
 #if GLYPH_HAS_SDL_MIXER
+  Mix_HaltChannel(-1);
+  Mix_HaltMusic();
+  for (auto& [_, chunk] : sdl.pitched) Mix_FreeChunk(chunk);
+  sdl.pitched.clear();
   for (auto& [_, chunk] : sdl.chunks) {
     if (chunk) {
       Mix_FreeChunk(chunk);
@@ -427,14 +450,49 @@ void clearLoadedAssets(SDLState& sdl) {
   sdl.audio.clear();
 }
 
+#if GLYPH_HAS_SDL_MIXER
+Mix_Chunk* pitchedChunk(SDLState& sdl, StringId asset, Mix_Chunk* source, float pitch) {
+  const int key=static_cast<int>(std::round(std::clamp(pitch,0.25f,4.0f)*100));
+  if(key==100) return source;
+  const auto cacheKey=std::make_pair(asset,key);
+  if(auto found=sdl.pitched.find(cacheKey);found!=sdl.pitched.end()) return found->second;
+  int frequency=0, channels=0; Uint16 format=0;
+  if(!Mix_QuerySpec(&frequency,&format,&channels) || format!=AUDIO_S16SYS || channels!=2) return source;
+  const auto* samples=reinterpret_cast<const Sint16*>(source->abuf);
+  const std::size_t frames=source->alen/(sizeof(Sint16)*2);
+  if(frames==0) return source;
+  const double rate=key/100.0;
+  const std::size_t count=static_cast<std::size_t>(frames/rate);
+  auto* output=static_cast<Sint16*>(SDL_malloc(count*2*sizeof(Sint16)));
+  if(!output) return source;
+  for(std::size_t i=0;i<count;++i) {
+    const double position=i*rate;
+    const auto a=std::min(static_cast<std::size_t>(position),frames-1), b=std::min(a+1,frames-1);
+    const double fraction=position-a;
+    for(int c=0;c<2;++c) output[i*2+c]=static_cast<Sint16>(samples[a*2+c]*(1-fraction)+samples[b*2+c]*fraction);
+  }
+  auto* chunk=Mix_QuickLoad_RAW(reinterpret_cast<Uint8*>(output),static_cast<Uint32>(count*2*sizeof(Sint16)));
+  if(!chunk) { SDL_free(output); return source; }
+  chunk->allocated=1;
+  sdl.pitched[cacheKey]=chunk;
+  return chunk;
+}
+#endif
+
 void processAudio(SDLState& sdl, game::GameHost& host) {
+  const auto mute=host.vm().profile()?host.vm().profile()->get(":muted",script::Value::booleanValue(false),host.vm().interner()):script::Value::booleanValue(false);
+  const bool muted=mute.kind==script::ValueKind::Bool && mute.boolean;
+#if GLYPH_HAS_SDL_MIXER
+  if(muted) Mix_Volume(-1,0);
+  Mix_VolumeMusic(muted?0:static_cast<int>(sdl.musicVolume*MIX_MAX_VOLUME));
+#endif
   for (const auto& command : host.audio().commands()) {
     switch (command.type) {
     case audio::AudioCommandType::PlaySound:
 #if GLYPH_HAS_SDL_MIXER
       if (auto chunk = sdl.chunks.find(command.asset); chunk != sdl.chunks.end() && chunk->second) {
-        Mix_VolumeChunk(chunk->second, static_cast<int>(std::clamp(command.volume, 0.0f, 1.0f) * MIX_MAX_VOLUME));
-        Mix_PlayChannel(-1, chunk->second, 0);
+        const int channel=Mix_PlayChannel(-1, pitchedChunk(sdl,command.asset,chunk->second,command.pitch),0);
+        if(channel>=0) Mix_Volume(channel,static_cast<int>(std::clamp((muted?0.0f:command.volume),0.0f,1.0f)*MIX_MAX_VOLUME));
         break;
       }
 #endif
@@ -443,7 +501,8 @@ void processAudio(SDLState& sdl, game::GameHost& host) {
 #if GLYPH_HAS_SDL_MIXER
       if (command.type == audio::AudioCommandType::PlayMusic) {
         if (auto music = sdl.music.find(command.asset); music != sdl.music.end() && music->second) {
-          Mix_VolumeMusic(static_cast<int>(std::clamp(command.volume, 0.0f, 1.0f) * MIX_MAX_VOLUME));
+          sdl.musicVolume=command.volume;
+          Mix_VolumeMusic(static_cast<int>(std::clamp((muted?0.0f:command.volume), 0.0f, 1.0f) * MIX_MAX_VOLUME));
           Mix_PlayMusic(music->second, -1);
           break;
         }
@@ -451,7 +510,7 @@ void processAudio(SDLState& sdl, game::GameHost& host) {
 #endif
       auto found = sdl.audio.find(command.asset);
       if (found != sdl.audio.end()) {
-        queueAudio(sdl.audioDevice, found->second, command.volume);
+        queueAudio(sdl.audioDevice, found->second, muted?0.0f:command.volume, command.pitch);
       }
       break;
     }
@@ -463,7 +522,7 @@ void processAudio(SDLState& sdl, game::GameHost& host) {
       break;
     case audio::AudioCommandType::SetMusicVolume:
 #if GLYPH_HAS_SDL_MIXER
-      Mix_VolumeMusic(static_cast<int>(std::clamp(command.volume, 0.0f, 1.0f) * MIX_MAX_VOLUME));
+      Mix_VolumeMusic(static_cast<int>(std::clamp((muted?0.0f:command.volume), 0.0f, 1.0f) * MIX_MAX_VOLUME));
 #endif
       break;
     }
@@ -475,6 +534,13 @@ void activateScene(SDLState& sdl, runtime::RuntimeShell& shell) {
   clearLoadedAssets(sdl);
   loadSDLAssets(sdl, shell);
   applySceneWindow(sdl, shell.host());
+  for(const auto& asset:shell.host().assets().assets()) {
+    if(asset.type==assets::AssetType::Music) {
+      audio::AudioCommand command{}; command.type=audio::AudioCommandType::PlayMusic; command.asset=asset.name;
+      command.handle=shell.host().assets().music(asset.name); command.volume=0.2f;
+      shell.host().audio().enqueue(command); break;
+    }
+  }
 }
 
 void setNativeAudioPaused(SDLState& sdl, bool paused) {
@@ -499,24 +565,38 @@ void setNativeAudioPaused(SDLState& sdl, bool paused) {
   sdl.nativeAudioPaused = paused;
 }
 
+void updatePause(SDLState& sdl, runtime::RuntimeShell& shell) {
+  shell.setPaused(sdl.backgrounded || sdl.userPaused);
+  setNativeAudioPaused(sdl, shell.paused());
+}
+void clearControls(SDLState& sdl, runtime::RuntimeShell& shell) {
+  sdl.keys.clear(); sdl.controllerButtons.clear();
+  sdl.activeFinger.reset(); sdl.steeringFinger.reset();
+  sdl.touchX=sdl.touchY=sdl.controllerX=sdl.controllerY=0;
+  sdl.touchJump=sdl.mouseDown=false;
+  shell.input().clear();
+}
 void setLifecyclePaused(SDLState& sdl, runtime::RuntimeShell& shell, bool paused) {
-  if (sdl.backgrounded == paused && shell.paused() == paused) {
-    setNativeAudioPaused(sdl, paused);
-    return;
-  }
-
-  sdl.backgrounded = paused;
-  if (paused) {
-    if (sdl.activeFinger.has_value()) {
-      shell.setActionDown(":tap", false);
-      shell.setPointerDown(false, shell.input().pointerPosition());
-      sdl.activeFinger.reset();
-    }
-    shell.pause();
-  } else {
-    shell.resume();
-  }
-  setNativeAudioPaused(sdl, paused);
+  sdl.backgrounded=paused;
+  if(paused) { clearControls(sdl,shell); sdl.userPaused=true; }
+  updatePause(sdl,shell);
+}
+void refreshControls(SDLState& sdl, runtime::RuntimeShell& shell) {
+  const auto key=[&](SDL_Keycode k){ return sdl.keys.count(k)>0; };
+  const auto button=[&](Uint8 b){ return sdl.controllerButtons.count(b)>0; };
+  const bool left=key(SDLK_a)||key(SDLK_LEFT)||button(SDL_CONTROLLER_BUTTON_DPAD_LEFT);
+  const bool right=key(SDLK_d)||key(SDLK_RIGHT)||button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
+  const bool up=key(SDLK_w)||key(SDLK_UP)||button(SDL_CONTROLLER_BUTTON_DPAD_UP);
+  const bool down=key(SDLK_s)||key(SDLK_DOWN)||button(SDL_CONTROLLER_BUTTON_DPAD_DOWN);
+  shell.setAxis(":move-x",std::clamp(float(right)-float(left)+sdl.controllerX+sdl.touchX,-1.0f,1.0f));
+  shell.setAxis(":move-y",std::clamp(float(down)-float(up)+sdl.controllerY+sdl.touchY,-1.0f,1.0f));
+  shell.setActionDown(":left",left); shell.setActionDown(":right",right);
+  shell.setActionDown(":up",up); shell.setActionDown(":down",down);
+  const bool confirm=key(SDLK_SPACE)||key(SDLK_RETURN)||button(SDL_CONTROLLER_BUTTON_A);
+  shell.setActionDown(":confirm",confirm);
+  shell.setActionDown(":tap",confirm||sdl.mouseDown||sdl.touchJump||sdl.activeFinger.has_value());
+  shell.setActionDown(":secondary",key(SDLK_x)||button(SDL_CONTROLLER_BUTTON_X));
+  shell.setActionDown(":cancel",key(SDLK_BACKSPACE)||button(SDL_CONTROLLER_BUTTON_B));
 }
 
 std::string overlayText(std::string value) {
@@ -646,7 +726,10 @@ TTF_Font* ttfFont(FontAsset& font, int size) {
   if (found != font.fonts.end()) {
     return found->second;
   }
-  TTF_Font* loaded = TTF_OpenFont(font.path.c_str(), size);
+  // Android assets live inside the APK, so filesystem::exists is not a valid check.
+  SDL_RWops* stream = SDL_RWFromFile(font.path.c_str(), "rb");
+  TTF_Font* loaded = stream ? TTF_OpenFontRW(stream, 1, size) : nullptr;
+  if (!loaded) std::cerr << "warning: could not load font " << font.path << ": " << TTF_GetError() << '\n';
   font.fonts[size] = loaded;
   return loaded;
 }
@@ -938,59 +1021,85 @@ void consumeEvent(SDLState& sdl, runtime::RuntimeShell& shell, const SDL_Event& 
     setLifecyclePaused(sdl, shell, false);
     break;
   case SDL_WINDOWEVENT:
-    if (event.window.event == SDL_WINDOWEVENT_MINIMIZED || event.window.event == SDL_WINDOWEVENT_HIDDEN) {
+    if (event.window.event == SDL_WINDOWEVENT_MINIMIZED || event.window.event == SDL_WINDOWEVENT_HIDDEN || event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
       setLifecyclePaused(sdl, shell, true);
     } else if (event.window.event == SDL_WINDOWEVENT_RESTORED ||
+               event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED ||
                event.window.event == SDL_WINDOWEVENT_SHOWN) {
       setLifecyclePaused(sdl, shell, false);
     }
     break;
   case SDL_KEYDOWN:
   case SDL_KEYUP: {
-    const bool pressed = event.type == SDL_KEYDOWN;
-    if (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_AC_BACK) {
-      shell.setActionDown(":cancel", pressed);
+    const bool down=event.type==SDL_KEYDOWN;
+    const auto key=event.key.keysym.sym;
+    if(down && event.key.repeat) break;
+    if(key==SDLK_ESCAPE || key==SDLK_AC_BACK) {
+      if(down) { sdl.userPaused=!sdl.userPaused; clearControls(sdl,shell); updatePause(sdl,shell); }
+      break;
     }
-    if (event.key.keysym.sym == SDLK_ESCAPE) {
-      if (pressed) {
-        running = false;
-      }
+    if(sdl.userPaused && down) {
+      if(key==SDLK_RETURN || key==SDLK_SPACE) { sdl.userPaused=false; updatePause(sdl,shell); }
+      if(key==SDLK_BACKSPACE && shell.sceneDepth()>1) { shell.host().navigation().pop(); sdl.userPaused=false; updatePause(sdl,shell); }
+      if(key==SDLK_q) running=false;
+      break;
     }
-    if (event.key.keysym.sym == SDLK_SPACE || event.key.keysym.sym == SDLK_RETURN) {
-      shell.setActionDown(":tap", pressed);
-      shell.setActionDown(":confirm", pressed);
-    }
-    if (event.key.keysym.sym == SDLK_LEFT || event.key.keysym.sym == SDLK_a) {
-      shell.setActionDown(":left", pressed);
-      shell.setAxis(":move-x", pressed ? -1.0f : 0.0f);
-    }
-    if (event.key.keysym.sym == SDLK_RIGHT || event.key.keysym.sym == SDLK_d) {
-      shell.setActionDown(":right", pressed);
-      shell.setAxis(":move-x", pressed ? 1.0f : 0.0f);
-    }
-    if (event.key.keysym.sym == SDLK_UP || event.key.keysym.sym == SDLK_w) {
-      shell.setActionDown(":up", pressed);
-      shell.setAxis(":move-y", pressed ? -1.0f : 0.0f);
-    }
-    if (event.key.keysym.sym == SDLK_DOWN || event.key.keysym.sym == SDLK_s) {
-      shell.setActionDown(":down", pressed);
-      shell.setAxis(":move-y", pressed ? 1.0f : 0.0f);
+    if(down) sdl.keys.insert(key); else sdl.keys.erase(key);
+    refreshControls(sdl,shell);
+    break;
+  }
+  case SDL_CONTROLLERDEVICEADDED:
+    if(!sdl.controller && SDL_IsGameController(event.cdevice.which)) sdl.controller=SDL_GameControllerOpen(event.cdevice.which);
+    break;
+  case SDL_CONTROLLERDEVICEREMOVED:
+    if(sdl.controller && event.cdevice.which==SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(sdl.controller))) {
+      SDL_GameControllerClose(sdl.controller); sdl.controller=nullptr;
+      clearControls(sdl,shell); sdl.userPaused=true; updatePause(sdl,shell);
     }
     break;
+  case SDL_CONTROLLERAXISMOTION: {
+    float value=event.caxis.value/32767.0f;
+    value=std::abs(value)<0.18f?0.0f:std::copysign((std::abs(value)-0.18f)/0.82f,value);
+    if(event.caxis.axis==SDL_CONTROLLER_AXIS_LEFTX) sdl.controllerX=value;
+    if(event.caxis.axis==SDL_CONTROLLER_AXIS_LEFTY) sdl.controllerY=value;
+    refreshControls(sdl,shell); break;
+  }
+  case SDL_CONTROLLERBUTTONDOWN:
+  case SDL_CONTROLLERBUTTONUP: {
+    const bool down=event.type==SDL_CONTROLLERBUTTONDOWN;
+    const auto button=event.cbutton.button;
+    if(button==SDL_CONTROLLER_BUTTON_START) {
+      if(down) { sdl.userPaused=!sdl.userPaused; clearControls(sdl,shell); updatePause(sdl,shell); }
+      break;
+    }
+    if(sdl.userPaused && down) {
+      if(button==SDL_CONTROLLER_BUTTON_A) { sdl.userPaused=false; updatePause(sdl,shell); }
+      if(button==SDL_CONTROLLER_BUTTON_B && shell.sceneDepth()>1) { shell.host().navigation().pop(); sdl.userPaused=false; updatePause(sdl,shell); }
+      if(button==SDL_CONTROLLER_BUTTON_Y) running=false;
+      break;
+    }
+    if(down) sdl.controllerButtons.insert(button); else sdl.controllerButtons.erase(button);
+    refreshControls(sdl,shell); break;
   }
   case SDL_MOUSEBUTTONDOWN:
     if (event.button.which == SDL_TOUCH_MOUSEID) {
       break;
     }
-    shell.setActionDown(":tap", true);
+    sdl.mouseDown=true; refreshControls(sdl,shell);
     shell.setPointerDown(true, Vec2{static_cast<float>(event.button.x), static_cast<float>(event.button.y)});
     break;
   case SDL_MOUSEBUTTONUP: {
     if (event.button.which == SDL_TOUCH_MOUSEID) {
       break;
     }
-    shell.setActionDown(":tap", false);
+    sdl.mouseDown=false; refreshControls(sdl,shell);
     const Vec2 pos{static_cast<float>(event.button.x), static_cast<float>(event.button.y)};
+    if(sdl.userPaused) {
+      if(pos.y>=150 && pos.y<192) { sdl.userPaused=false; updatePause(sdl,shell); }
+      else if(pos.y>=192 && pos.y<234 && shell.sceneDepth()>1) { shell.host().navigation().pop(); sdl.userPaused=false; updatePause(sdl,shell); }
+      else if(pos.y>=234 && pos.y<276) running=false;
+      shell.input().clear(); break;
+    }
     shell.setPointerDown(false, pos);
     setSwipeFromPointerRelease(shell, pos);
     break;
@@ -1002,38 +1111,53 @@ void consumeEvent(SDLState& sdl, runtime::RuntimeShell& shell, const SDL_Event& 
     shell.setPointerPosition(Vec2{static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)});
     break;
   case SDL_FINGERDOWN: {
-    if (sdl.activeFinger.has_value()) {
-      break;
+    const Vec2 pos=normalizedTouchToLogical(sdl,event.tfinger.x,event.tfinger.y);
+    const auto& state=shell.host().state();
+    const auto phaseId=shell.host().vm().interner().intern(":phase");
+    const auto playId=shell.host().vm().interner().intern(":play");
+    const bool skiing=shell.host().vm().interner().resolve(shell.host().definition().id)==":alpine-rush" &&
+      state.kind==script::ValueKind::Map && state.map->contains(phaseId) &&
+      state.map->at(phaseId).kind==script::ValueKind::Keyword && state.map->at(phaseId).id==playId;
+    if(skiing && !sdl.userPaused && pos.y>90) {
+      if(pos.x<320 && !sdl.steeringFinger) { sdl.steeringFinger=event.tfinger.fingerId; sdl.steeringOrigin=pos; }
+      else if(!sdl.activeFinger) { sdl.activeFinger=event.tfinger.fingerId; sdl.touchJump=true; }
+      refreshControls(sdl,shell); break;
     }
-    sdl.activeFinger = event.tfinger.fingerId;
-    const Vec2 pos = normalizedTouchToLogical(sdl, event.tfinger.x, event.tfinger.y);
-    shell.setActionDown(":tap", true);
-    shell.setPointerDown(true, pos);
-    break;
+    if(sdl.activeFinger) break;
+    sdl.activeFinger=event.tfinger.fingerId;
+    shell.setPointerDown(true,pos); refreshControls(sdl,shell); break;
   }
   case SDL_FINGERUP: {
-    if (sdl.activeFinger != event.tfinger.fingerId) {
-      break;
+    const Vec2 pos=normalizedTouchToLogical(sdl,event.tfinger.x,event.tfinger.y);
+    if(sdl.steeringFinger==event.tfinger.fingerId) {
+      sdl.steeringFinger.reset(); sdl.touchX=sdl.touchY=0; refreshControls(sdl,shell); break;
     }
-    const Vec2 pos = normalizedTouchToLogical(sdl, event.tfinger.x, event.tfinger.y);
-    shell.setActionDown(":tap", false);
-    shell.setPointerDown(false, pos);
-    setSwipeFromPointerRelease(shell, pos);
-    sdl.activeFinger.reset();
+    if(sdl.activeFinger!=event.tfinger.fingerId) break;
+    sdl.activeFinger.reset(); sdl.touchJump=false;
+    if(sdl.userPaused) {
+      if(pos.y>=150 && pos.y<192) { sdl.userPaused=false; updatePause(sdl,shell); }
+      else if(pos.y>=192 && pos.y<234 && shell.sceneDepth()>1) { shell.host().navigation().pop(); sdl.userPaused=false; updatePause(sdl,shell); }
+      else if(pos.y>=234 && pos.y<276) running=false;
+      shell.input().clear(); break;
+    }
+    shell.setPointerDown(false,pos); setSwipeFromPointerRelease(shell,pos); refreshControls(sdl,shell); break;
+  }
+  case SDL_FINGERMOTION: {
+    const Vec2 pos=normalizedTouchToLogical(sdl,event.tfinger.x,event.tfinger.y);
+    if(sdl.steeringFinger==event.tfinger.fingerId) {
+      sdl.touchX=std::clamp((pos.x-sdl.steeringOrigin.x)/50.0f,-1.0f,1.0f);
+      sdl.touchY=std::clamp((pos.y-sdl.steeringOrigin.y)/65.0f,-1.0f,1.0f);
+      refreshControls(sdl,shell);
+    } else if(sdl.activeFinger==event.tfinger.fingerId) shell.setPointerPosition(pos);
     break;
   }
-  case SDL_FINGERMOTION:
-    if (sdl.activeFinger != event.tfinger.fingerId) {
-      break;
-    }
-    shell.setPointerPosition(normalizedTouchToLogical(sdl, event.tfinger.x, event.tfinger.y));
-    break;
   default:
     break;
   }
 }
 
 void cleanup(SDLState& sdl) {
+  if(sdl.controller) SDL_GameControllerClose(sdl.controller);
   clearLoadedAssets(sdl);
   if (sdl.audioDevice != 0) {
     SDL_CloseAudioDevice(sdl.audioDevice);
@@ -1061,12 +1185,20 @@ void cleanup(SDLState& sdl) {
 } // namespace
 
 int runSDLAppWithShell(runtime::RuntimeShell shell, int maxFrames, const SDLAppOptions& options) {
-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS) != 0) {
+  SDL_SetMainReady();
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) != 0) {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
     return 1;
   }
 
   SDLState sdl;
+  if(const char* overridePath=std::getenv("GLYPH_PROFILE_PATH")) {
+    shell.setProfile(std::make_shared<profile::ProfileStore>(overridePath));
+  } else if(char* pref=SDL_GetPrefPath("Glyph","Arcade")) {
+    shell.setProfile(std::make_shared<profile::ProfileStore>(std::filesystem::path(pref)/"profile.glyphdata"));
+    SDL_free(pref);
+  }
+  for(int i=0;i<SDL_NumJoysticks();++i) if(SDL_IsGameController(i)) { sdl.controller=SDL_GameControllerOpen(i); break; }
 #if GLYPH_HAS_SDL_IMAGE
   const int imageFlags = IMG_INIT_PNG | IMG_INIT_JPG;
   if ((IMG_Init(imageFlags) & IMG_INIT_PNG) == 0) {
@@ -1202,11 +1334,13 @@ int runSDLAppWithShell(runtime::RuntimeShell shell, int maxFrames, const SDLAppO
       }
     }
 
+    if(sdl.userPaused) shell.input().clear();
     shell.tick(std::min(dt, 0.25));
     processAudio(sdl, shell.host());
     try {
       const std::string previousStatusError = shell.statusError();
       if (shell.processNavigation()) {
+        clearControls(sdl,shell);
         activateScene(sdl, shell);
         reloadPath = shell.currentScenePath();
         reloadFile = shell.currentSceneFile();
@@ -1223,6 +1357,20 @@ int runSDLAppWithShell(runtime::RuntimeShell shell, int maxFrames, const SDLAppO
     renderCommands(sdl, shell.host().vm().interner(), commands);
     drawReloadErrorOverlay(sdl.renderer, static_cast<int>(shell.host().definition().logicalSize.x),
                            shell.statusError());
+    if(sdl.userPaused) {
+      SDL_SetRenderDrawColor(sdl.renderer,9,18,31,230);
+      SDL_FRect panel{75,75,330,224}; SDL_RenderFillRectF(sdl.renderer,&panel);
+      const auto label=[&](const char* value,float x,float y,int size){
+        render::DrawCommand cmd{}; cmd.type=render::DrawCommandType::Text; cmd.font=shell.host().vm().interner().intern(":main");
+        cmd.text=value; cmd.x=x; cmd.y=y; cmd.scale=size; cmd.color="#f3f4ef";
+        renderCommands(sdl,shell.host().vm().interner(),{cmd});
+      };
+      label("PAUSED",170,99,24);
+      label("Resume   /   A or Enter",111,159,16);
+      label("Arcade   /   B or Backspace",111,201,16);
+      label("Quit       /   Y or Q",111,243,16);
+    }
+    if(!shell.profile().error().empty()) drawReloadErrorOverlay(sdl.renderer,width,shell.profile().error());
     SDL_RenderPresent(sdl.renderer);
     shell.endFrame();
 
@@ -1243,6 +1391,15 @@ int runSDLApp(const std::string& gameFileString, int maxFrames, const SDLAppOpti
 int runSDLApp(std::shared_ptr<assets::IAssetSource> assetSource, const std::string& entryPath, int maxFrames,
               const SDLAppOptions& options) {
   return runSDLAppWithShell(runtime::RuntimeShell(std::move(assetSource), entryPath), maxFrames, options);
+}
+
+std::string bundledDemoPath() {
+  std::filesystem::path base;
+  if(char* value=SDL_GetBasePath()) { base=value; SDL_free(value); }
+  for(const auto& path : {base/"arcade/demo.glyph", base/"../Resources/arcade/demo.glyph", std::filesystem::path("examples/arcade/demo.glyph")}) {
+    if(std::filesystem::exists(path)) return path.string();
+  }
+  throw script::RuntimeError("Demo assets missing. Install the arcade directory beside the executable.");
 }
 
 int runSDLDesktop(const std::string& gameFile, int maxFrames) {

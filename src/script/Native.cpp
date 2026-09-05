@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <functional>
 #include <random>
+#include "profile/ProfileStore.h"
 #include <sstream>
 #include <string>
 
@@ -138,19 +139,6 @@ std::map<StringId, Value> makeMap(VM& vm,
   return map;
 }
 
-std::mt19937& rng() {
-  static std::mt19937 generator = [] {
-    if (const char* seed = std::getenv("GLYPH_RANDOM_SEED")) {
-      char* end = nullptr;
-      const auto parsed = std::strtoul(seed, &end, 10);
-      if (end != seed) {
-        return std::mt19937{static_cast<std::mt19937::result_type>(parsed)};
-      }
-    }
-    return std::mt19937{std::random_device{}()};
-  }();
-  return generator;
-}
 
 Value arithmeticAdd(VM&, const std::vector<Value>& args) {
   double result = 0.0;
@@ -476,40 +464,61 @@ Value nativeStringLength(VM&, const std::vector<Value>& args) {
   return Value::numberValue(static_cast<double>(args[0].text.size()));
 }
 
-Value nativeRand(VM&, const std::vector<Value>&) {
-  return Value::numberValue(std::uniform_real_distribution<double>(0.0, 1.0)(rng()));
+Value nativeProfileGet(VM& vm, const std::vector<Value>& args) {
+  if (args[0].kind != ValueKind::Keyword) throw RuntimeError("profile/get expects a keyword");
+  return vm.profile() ? vm.profile()->get(std::string(vm.interner().resolve(args[0].id)), args[1], vm.interner()) : args[1];
+}
+Value nativeProfileSet(VM& vm, const std::vector<Value>& args) {
+  if (args[0].kind != ValueKind::Keyword) throw RuntimeError("profile/set expects a keyword");
+  return Value::booleanValue(vm.profile() && vm.profile()->set(std::string(vm.interner().resolve(args[0].id)), args[1], vm.interner()));
+}
+Value nativeArcadeContext(VM& vm, const std::vector<Value>&) {
+  const auto fallback = profile::decode("{:mode :practice :challenge 0 :seed 1 :content-version 1}", vm.interner());
+  return vm.profile() ? vm.profile()->get(":run-context", fallback, vm.interner()) : fallback;
+}
+Value nativeArcadeComplete(VM& vm, const std::vector<Value>& args) {
+  return Value::booleanValue(vm.profile() && vm.profile()->complete(args[0], vm.interner()));
+}
+Value nativeSeed(VM& vm, const std::vector<Value>& args) {
+  const double seed = numberArg(args[0]);
+  if (!std::isfinite(seed) || seed < 0 || seed > 4294967295.0) throw RuntimeError("seed must be a uint32");
+  vm.seedRandom(static_cast<std::uint32_t>(seed)); return Value::nil();
 }
 
-Value nativeRandInt(VM&, const std::vector<Value>& args) {
+Value nativeRand(VM& vm, const std::vector<Value>&) {
+  return Value::numberValue(vm.randomUnit());
+}
+
+Value nativeRandInt(VM& vm, const std::vector<Value>& args) {
   const int max = static_cast<int>(numberArg(args[0]));
   if (max <= 0) {
     throw RuntimeError("rand-int max must be positive");
   }
-  return Value::numberValue(static_cast<double>(std::uniform_int_distribution<int>(0, max - 1)(rng())));
+  return Value::numberValue(static_cast<double>(vm.randomIndex(static_cast<std::uint32_t>(max))));
 }
 
-Value nativeRandRange(VM&, const std::vector<Value>& args) {
+Value nativeRandRange(VM& vm, const std::vector<Value>& args) {
   const double min = numberArg(args[0]);
   const double max = numberArg(args[1]);
   if (max < min) {
     throw RuntimeError("rand-range max must be >= min");
   }
-  return Value::numberValue(std::uniform_real_distribution<double>(min, max)(rng()));
+  return Value::numberValue((min + (max - min) * vm.randomUnit()));
 }
 
-Value nativeChoose(VM&, const std::vector<Value>& args) {
+Value nativeChoose(VM& vm, const std::vector<Value>& args) {
   const auto& values = vectorArg(args[0]);
   if (values.empty()) {
     return Value::nil();
   }
   const auto index = static_cast<std::size_t>(
-      std::uniform_int_distribution<int>(0, static_cast<int>(values.size() - 1))(rng()));
+      vm.randomIndex(static_cast<std::uint32_t>(values.size())));
   return values[index];
 }
 
-Value nativeChance(VM&, const std::vector<Value>& args) {
+Value nativeChance(VM& vm, const std::vector<Value>& args) {
   const double p = numberArg(args[0]);
-  return Value::booleanValue(std::uniform_real_distribution<double>(0.0, 1.0)(rng()) < p);
+  return Value::booleanValue(vm.randomUnit() < p);
 }
 
 Value nativeRectBox(VM& vm, const std::vector<Value>& args) {
@@ -939,6 +948,11 @@ void registerCoreNatives(VM& vm) {
   define(vm, "find", nativeFind, 2, 2);
   define(vm, "range", nativeRange, 1, 2);
 
+  define(vm, "profile/get", nativeProfileGet, 2, 2);
+  define(vm, "profile/set", nativeProfileSet, 2, 2);
+  define(vm, "arcade/context", nativeArcadeContext, 0, 0);
+  define(vm, "arcade/complete", nativeArcadeComplete, 1, 1);
+  define(vm, "random/seed", nativeSeed, 1, 1);
   define(vm, "rand", nativeRand, 0, 0);
   define(vm, "rand-int", nativeRandInt, 1, 1);
   define(vm, "rand-range", nativeRandRange, 2, 2);

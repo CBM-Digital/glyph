@@ -130,6 +130,9 @@ void testNamedGridAtlasSource() {
 
   glyph::render::RenderCompiler compiler(vm.interner(), &assets);
   const auto commands = compiler.compile(tree);
+  const auto named = compiler.compile(vm.evalSource("(sprite :image :tiles :frame :grass :x 8 :y 9)"));
+  require(named[0].hasSourceRect && named[0].sourceRect.x==55 && named[0].sourceRect.y==34,
+          "named :frame resolves the atlas instead of hashing the name");
   require(commands.size() == 1, "grid atlas emits sprite");
   require(commands[0].hasSourceRect, "grid atlas source rect enabled");
   require(commands[0].sourceRect.x == 55 && commands[0].sourceRect.y == 34 &&

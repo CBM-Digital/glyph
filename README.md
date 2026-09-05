@@ -14,6 +14,8 @@ C++ owns the engine, platforms, rendering, audio, assets, input, storage, and ru
 
 Glyph script owns game state, rules, and declarative scene composition.
 
+The arcade expedition now has a two-game playable slice. See [implementation status](docs/ARCADE_IMPLEMENTATION.md), [playtest protocol](docs/PLAYTEST.md), and [build/run instructions](USAGE.md). The larger language/runtime design below includes features that are still planned.
+
 ---
 
 ## Table of contents
